@@ -96,6 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
     setFontFamily,
     lineSpacing,
     setLineSpacing,
+    readingWidth,
+    setReadingWidth,
     readingMode,
     setReadingMode,
     showTranslation,
@@ -201,7 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
         <div className="h-px bg-current/10 my-2" />
 
         {/* Dark mode + Theme row */}
-        <Group label="المظهر والألوان" icon={<Palette className="w-3.5 h-3.5 text-amber-500" />} defaultOpen>
+        <Group label="المظهر والألوان" icon={<Palette className="w-3.5 h-3.5 text-amber-500" />}>
           {/* Dark/light toggle */}
           <button
             onClick={toggleDarkMode}
@@ -236,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
         <div className="h-px bg-current/10 my-1" />
 
         {/* Typography */}
-        <Group label="الخط والطباعة" icon={<Type className="w-3.5 h-3.5 text-amber-500" />} defaultOpen>
+        <Group label="الخط والطباعة" icon={<Type className="w-3.5 h-3.5 text-amber-500" />}>
           {/* Font size */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-[11px] opacity-70">
@@ -320,12 +322,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
               ))}
             </div>
           </div>
+
+          {/* Reading area width */}
+          <div className="space-y-1">
+            <span className="text-[11px] opacity-60">عرض منطقة القراءة</span>
+            <div className="flex gap-1">
+              {(['normal', 'wide', 'full'] as const).map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setReadingWidth(w)}
+                  className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                    readingWidth === w
+                      ? 'bg-amber-500 text-stone-950'
+                      : 'bg-current/5 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {w === 'normal' ? 'ضيق' : w === 'wide' ? 'عريض' : 'ممتد'}
+                </button>
+              ))}
+            </div>
+          </div>
         </Group>
 
         <div className="h-px bg-current/10 my-1" />
 
         {/* Reading mode */}
-        <Group label="طريقة القراءة" icon={<AlignJustify className="w-3.5 h-3.5 text-amber-500" />} defaultOpen>
+        <Group label="طريقة القراءة" icon={<AlignJustify className="w-3.5 h-3.5 text-amber-500" />}>
           <div className="flex gap-1">
             <button
               onClick={() => setReadingMode('mushaf')}

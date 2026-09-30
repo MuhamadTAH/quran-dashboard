@@ -40,6 +40,8 @@ interface QuranContextType {
   setFontFamily: (font: FontFamily) => void
   lineSpacing: LineSpacing
   setLineSpacing: (spacing: LineSpacing) => void
+  readingWidth: 'normal' | 'wide' | 'full'
+  setReadingWidth: (w: 'normal' | 'wide' | 'full') => void
 
   // Reading Preferences
   readingMode: ReadingMode
@@ -136,6 +138,15 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [lineSpacing, setLineSpacingState] = useState<LineSpacing>(() => {
     return (localStorage.getItem('quran_line_spacing') as LineSpacing) || 'relaxed'
   })
+
+  // Reading area width
+  const [readingWidth, setReadingWidthState] = useState<'normal' | 'wide' | 'full'>(() => {
+    return (localStorage.getItem('quran_reading_width') as 'normal' | 'wide' | 'full') || 'wide'
+  })
+  const setReadingWidth = (w: 'normal' | 'wide' | 'full') => {
+    setReadingWidthState(w)
+    localStorage.setItem('quran_reading_width', w)
+  }
 
   // Reading mode
   const [readingMode, setReadingModeState] = useState<ReadingMode>(() => {
@@ -535,6 +546,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setFontFamily,
         lineSpacing,
         setLineSpacing,
+        readingWidth,
+        setReadingWidth,
         readingMode,
         setReadingMode,
         showTranslation,

@@ -13,6 +13,8 @@ import {
   X,
   StickyNote,
   Trash2,
+  Headphones,
+  MousePointer2,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -46,18 +48,14 @@ const NoteDialog: React.FC<{
             <StickyNote className="w-4 h-4 text-amber-500" />
             <span>
               {wordIndex !== undefined
-                ? `ملاحظة على الكلمة: ${wordText}`
-                : `ملاحظة على الآية ${ayahNumber}`}
+                ? `ملاحظة على: ${wordText}`
+                : `ملاحظة — الآية ${ayahNumber}`}
             </span>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg border border-current/10 hover:bg-current/10"
-          >
+          <button onClick={onClose} className="p-1.5 rounded-lg border border-current/10 hover:bg-current/10">
             <X className="w-4 h-4" />
           </button>
         </div>
-
         <textarea
           autoFocus
           value={text}
@@ -66,7 +64,6 @@ const NoteDialog: React.FC<{
           rows={4}
           className={`w-full resize-none rounded-xl border border-current/15 ${themeConfig.bgCard} p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 leading-relaxed font-ui`}
         />
-
         <div className="flex items-center gap-2">
           <button
             onClick={() => { if (text.trim()) { onSave(text.trim()); onClose() } }}
@@ -76,10 +73,7 @@ const NoteDialog: React.FC<{
             حفظ الملاحظة
           </button>
           {onDelete && (
-            <button
-              onClick={() => { onDelete(); onClose() }}
-              className="p-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
-            >
+            <button onClick={() => { onDelete(); onClose() }} className="p-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors">
               <Trash2 className="w-4 h-4" />
             </button>
           )}
@@ -88,6 +82,59 @@ const NoteDialog: React.FC<{
     </div>
   )
 }
+
+// ─── Ayah Action Popup ────────────────────────────────────────────────────────
+// Shows when clicking an ayah number while in selection or audio mode
+const AyahPopup: React.FC<{
+  ayahNum: number
+  themeConfig: ThemeColors
+  isPlaying: boolean
+  isSelectionMode: boolean
+  isAudioClickMode: boolean
+  hasNote: boolean
+  onPlay: () => void
+  onNote: () => void
+  onSelect: () => void
+  onClose: () => void
+}> = ({ ayahNum, themeConfig, isPlaying, isSelectionMode, hasNote, onPlay, onNote, onSelect, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className={`${themeConfig.bgCard} border ${themeConfig.border} rounded-2xl shadow-2xl p-4 w-52 space-y-2`}
+      onClick={(e) => e.stopPropagation()}
+      dir="rtl"
+    >
+      <p className="text-xs font-bold opacity-60 text-center pb-1 border-b border-current/10">
+        الآية {ayahNum}
+      </p>
+      {/* Play this ayah */}
+      <button
+        onClick={() => { onPlay(); onClose() }}
+        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-emerald-500/10 text-sm font-semibold text-right transition-colors"
+      >
+        <Headphones className="w-4 h-4 text-emerald-600 shrink-0" />
+        {isPlaying ? 'إيقاف' : 'استمع لهذه الآية'}
+      </button>
+      {/* Add note */}
+      <button
+        onClick={() => { onNote(); onClose() }}
+        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-violet-500/10 text-sm font-semibold text-right transition-colors ${hasNote ? 'text-violet-600 dark:text-violet-400' : ''}`}
+      >
+        <StickyNote className="w-4 h-4 text-violet-500 shrink-0" />
+        {hasNote ? 'تعديل الملاحظة' : 'إضافة ملاحظة'}
+      </button>
+      {/* Select ayah */}
+      {isSelectionMode && (
+        <button
+          onClick={() => { onSelect(); onClose() }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-blue-500/10 text-sm font-semibold text-right transition-colors"
+        >
+          <MousePointer2 className="w-4 h-4 text-blue-500 shrink-0" />
+          تحديد / إلغاء التحديد
+        </button>
+      )}
+    </div>
+  </div>
+)
 
 // ─── Main QuranReader ─────────────────────────────────────────────────────────
 interface QuranReaderProps {
@@ -135,6 +182,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   const [selectedWordInfo, setSelectedWordInfo] = useState<{ word: string; frequency: number } | null>(null)
   const [noteTarget, setNoteTarget] = useState<{ ayahNumber: number; wordIndex?: number; wordText?: string } | null>(null)
   const [selectedAyahs, setSelectedAyahs] = useState<Set<number>>(new Set())
+  // Ayah action popup (shown in selection/audio mode when clicking ayah number)
+  const [ayahPopup, setAyahPopup] = useState<number | null>(null)
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const getFontFamilyClass = (family: FontFamily) => {
@@ -173,8 +222,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     return getSurahRareStats(currentSurahData, rareWordThreshold)
   }, [currentSurahData, rareWordThreshold])
 
-  const handleAyahSelectionClick = (ayahNum: number) => {
-    if (!isSelectionMode) return
+  const toggleAyahSelected = (ayahNum: number) => {
     setSelectedAyahs((prev) => {
       const next = new Set(prev)
       if (next.has(ayahNum)) next.delete(ayahNum)
@@ -189,10 +237,16 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     if (isRare && rareFreq !== undefined) setSelectedWordInfo({ word, frequency: rareFreq })
   }
 
+  // Ayah number click:
+  //   Default → open note dialog for that ayah
+  //   Selection or Audio mode → open action popup (play / note / select)
   const handleAyahNumberClick = (ayahNum: number) => {
-    if (isAudioClickMode) { isPlaying && playingAyahNumber === ayahNum ? pauseAudio() : playAyah(ayahNum); return }
-    if (isSelectionMode) { handleAyahSelectionClick(ayahNum); return }
-    isPlaying && playingAyahNumber === ayahNum ? pauseAudio() : playAyah(ayahNum)
+    if (isSelectionMode || isAudioClickMode) {
+      setAyahPopup(ayahNum)
+    } else {
+      // Default: open note dialog
+      setNoteTarget({ ayahNumber: ayahNum })
+    }
   }
 
   const currentSurahNotes = notes.filter((n) => n.surahNumber === currentSurahNumber)
@@ -230,8 +284,14 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
         }`}>
           {isSelectionMode
-            ? '🟦 وضع الاختيار — انقر على آية أو كلمة لإضافة ملاحظة'
-            : '🎧 وضع الاستماع — رقم الآية = الآية كاملة | أي كلمة = نطقها'}
+            ? '🟦 وضع الاختيار — انقر كلمة لملاحظتها • انقر رقم الآية لخيارات'
+            : '🎧 وضع الاستماع — انقر رقم الآية لخيارات • انقر كلمة لسماع نطقها'}
+        </div>
+      )}
+
+      {!isSelectionMode && !isAudioClickMode && (
+        <div className="text-center text-xs py-1.5 px-4 rounded-xl border border-current/10 opacity-50">
+          💡 انقر على رقم أي آية لكتابة ملاحظة • انقر على كلمة مضيئة لمعرفة تكرارها
         </div>
       )}
 
@@ -240,7 +300,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 text-xs">
           <span className="text-blue-700 dark:text-blue-300 font-semibold">{selectedAyahs.size} آيات محددة</span>
           <button onClick={() => setSelectedAyahs(new Set())} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
-            <X className="w-3 h-3" /> إلغاء
+            <X className="w-3 h-3" /> إلغاء التحديد
           </button>
         </div>
       )}
@@ -251,31 +311,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         {/* ── Main reading area ── */}
         <div className="flex-1 min-w-0 space-y-5">
 
-          {/* Surah header card */}
+          {/* Surah header */}
           <div className={`relative overflow-hidden rounded-3xl p-5 sm:p-7 ${themeConfig.bgCard} border ${themeConfig.border} text-center space-y-4 shadow-sm`}>
             <div className="flex items-center justify-between text-xs font-bold">
-              <button
-                onClick={handlePrevSurah}
-                disabled={currentSurahNumber <= 1}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-current/15 hover:bg-current/5 disabled:opacity-30 transition-all"
-              >
-                <ChevronRight className="w-4 h-4" />
-                <span>السابقة</span>
+              <button onClick={handlePrevSurah} disabled={currentSurahNumber <= 1} className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-current/15 hover:bg-current/5 disabled:opacity-30 transition-all">
+                <ChevronRight className="w-4 h-4" /><span>السابقة</span>
               </button>
-              <button
-                onClick={() => setIsSurahSelectorOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-all flex items-center gap-1.5"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>فهرس السور ({currentSurahNumber}/114)</span>
+              <button onClick={() => setIsSurahSelectorOpen(true)} className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 transition-all flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5" /><span>فهرس السور ({currentSurahNumber}/114)</span>
               </button>
-              <button
-                onClick={handleNextSurah}
-                disabled={currentSurahNumber >= 114}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-current/15 hover:bg-current/5 disabled:opacity-30 transition-all"
-              >
-                <span>التالية</span>
-                <ChevronLeft className="w-4 h-4" />
+              <button onClick={handleNextSurah} disabled={currentSurahNumber >= 114} className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-current/15 hover:bg-current/5 disabled:opacity-30 transition-all">
+                <span>التالية</span><ChevronLeft className="w-4 h-4" />
               </button>
             </div>
 
@@ -283,12 +329,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
               <div className="inline-block px-3 py-1 rounded-full border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-semibold">
                 {currentSurahData.revelationType === 'Meccan' ? 'مكية' : 'مدنية'} • {currentSurahData.numberOfAyahs} آيات
               </div>
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold font-quran-amiri tracking-wide py-1">
-                {currentSurahData.name}
-              </h2>
-              <p className="text-xs sm:text-sm opacity-60 font-sans">
-                {currentSurahData.englishName} • {currentSurahData.englishNameTranslation}
-              </p>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold font-quran-amiri tracking-wide py-1">{currentSurahData.name}</h2>
+              <p className="text-xs sm:text-sm opacity-60 font-sans">{currentSurahData.englishName} • {currentSurahData.englishNameTranslation}</p>
               {highlightRareWords && (
                 <div className="pt-2">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
@@ -300,10 +342,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
               )}
             </div>
 
-            <button
-              onClick={playWholeSurah}
-              className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-2 mx-auto shadow-md shadow-amber-500/20 active:scale-95 transition-all"
-            >
+            <button onClick={playWholeSurah} className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs sm:text-sm flex items-center gap-2 mx-auto shadow-md shadow-amber-500/20 active:scale-95 transition-all">
               <Volume2 className="w-4 h-4" />
               استمع إلى السورة كاملة ({reciter.arabicName})
             </button>
@@ -320,17 +359,11 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
 
           {/* ── MUSHAF MODE ── */}
           {readingMode === 'mushaf' ? (
-            <div
-              className={`p-6 sm:p-10 rounded-3xl ${themeConfig.bgCard} border ${themeConfig.border} shadow-md text-justify leading-loose select-text`}
-              dir="rtl"
-            >
-              <div
-                className={`${getFontFamilyClass(fontFamily)} transition-all duration-150`}
-                style={{ fontSize: `${fontSize}px`, lineHeight: getLineHeight(lineSpacing) }}
-              >
+            <div className={`p-6 sm:p-10 rounded-3xl ${themeConfig.bgCard} border ${themeConfig.border} shadow-md text-justify leading-loose select-text`} dir="rtl">
+              <div className={`${getFontFamilyClass(fontFamily)} transition-all duration-150`} style={{ fontSize: `${fontSize}px`, lineHeight: getLineHeight(lineSpacing) }}>
                 {currentSurahData.ayahs.map((ayah) => {
                   const isPlayingThis = isPlaying && playingAyahNumber === ayah.numberInSurah
-                  const isSelectedAyah = isSelectionMode && selectedAyahs.has(ayah.numberInSurah)
+                  const isSelectedAyah = selectedAyahs.has(ayah.numberInSurah)
                   const tokens = highlightRareWords ? tokenizeAyah(ayah.text, rareWordThreshold) : null
                   const ayahNotes = getAyahNotes(currentSurahNumber, ayah.numberInSurah)
 
@@ -338,9 +371,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                     <span
                       key={ayah.number}
                       id={`ayah-${ayah.numberInSurah}`}
-                      className={`transition-colors duration-200 inline rounded-lg px-0.5 ${
-                        isPlayingThis ? themeConfig.ayahActive : ''
-                      } ${isSelectedAyah ? 'bg-blue-400/20 ring-1 ring-blue-400/50 rounded' : ''}`}
+                      className={`transition-colors duration-200 inline rounded-lg px-0.5 ${isPlayingThis ? themeConfig.ayahActive : ''} ${isSelectedAyah ? 'bg-blue-400/20 ring-1 ring-blue-400/50 rounded' : ''}`}
                     >
                       {tokens ? (
                         tokens.map((tok, idx) => {
@@ -352,7 +383,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                                 key={idx}
                                 onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency)}
                                 className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                                title={isAudioClickMode ? `سماع: ${tok.cleaned}` : isSelectionMode ? 'نقر لإضافة ملاحظة' : `نادرة — ${tok.frequency} مرة`}
+                                title={isAudioClickMode ? `سماع: ${tok.cleaned}` : isSelectionMode ? 'ملاحظة' : `نادرة — ${tok.frequency} مرة`}
                               >
                                 {tok.text}
                                 {wordNote && <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
@@ -370,34 +401,22 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           )
                         })
                       ) : (
-                        <span
-                          onClick={() => handleWordClick(ayah.text, ayah.numberInSurah, 0, false)}
-                          className="cursor-pointer hover:bg-amber-500/10 rounded"
-                        >
+                        <span onClick={() => handleWordClick(ayah.text, ayah.numberInSurah, 0, false)} className="cursor-pointer hover:bg-amber-500/10 rounded">
                           {ayah.text}
                         </span>
                       )}
 
+                      {/* Ayah number circle — click to open notes (default) or popup (in a mode) */}
                       <span
                         className={`ayah-number ${themeConfig.ayahMarker} cursor-pointer relative ${
-                          isAudioClickMode ? 'ring-2 ring-emerald-400/50' : ''
+                          isAudioClickMode ? 'ring-2 ring-emerald-400/60' : isSelectionMode ? 'ring-2 ring-blue-400/60' : 'hover:ring-2 hover:ring-amber-400/60'
                         } ${isSelectedAyah ? '!bg-blue-500 !text-white' : ''}`}
                         onClick={() => handleAyahNumberClick(ayah.numberInSurah)}
-                        title={isAudioClickMode ? 'استماع' : isSelectionMode ? 'تحديد' : `الآية ${ayah.numberInSurah}`}
+                        title={isAudioClickMode || isSelectionMode ? 'انقر للخيارات' : 'انقر لملاحظة'}
                       >
                         {ayah.numberInSurah}
                         {ayahNotes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
                       </span>
-
-                      {isSelectionMode && (
-                        <button
-                          onClick={() => setNoteTarget({ ayahNumber: ayah.numberInSurah })}
-                          className="inline-flex items-center mx-1 text-violet-500 hover:text-violet-700"
-                          title="ملاحظة على الآية"
-                        >
-                          <StickyNote className="w-3 h-3" />
-                        </button>
-                      )}
                     </span>
                   )
                 })}
@@ -426,16 +445,19 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                     {/* Verse header */}
                     <div className="flex items-center justify-between border-b pb-3 border-current/10">
                       <div className="flex items-center gap-2">
+                        {/* Ayah number — same click behavior as mushaf */}
                         <span
                           onClick={() => handleAyahNumberClick(ayah.numberInSurah)}
-                          className={`w-8 h-8 rounded-full font-mono text-xs font-bold flex items-center justify-center border cursor-pointer transition-all ${
+                          className={`relative w-8 h-8 rounded-full font-mono text-xs font-bold flex items-center justify-center border cursor-pointer transition-all ${
                             isAudioClickMode ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-400'
+                            : isSelectionMode ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40 ring-1 ring-blue-400'
                             : isSelectedAyah ? 'bg-blue-500 text-white border-blue-500'
                             : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
                           }`}
-                          title={isAudioClickMode ? 'استماع' : isSelectionMode ? 'تحديد' : `الآية ${ayah.numberInSurah}`}
+                          title={isAudioClickMode || isSelectionMode ? 'انقر للخيارات' : 'انقر لملاحظة'}
                         >
                           {ayah.numberInSurah}
+                          {ayahNotes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
                         </span>
                         <span className="text-xs opacity-60">الآية {ayah.numberInSurah} من {currentSurahData.numberOfAyahs}</span>
                         {ayahNotes.length > 0 && (
@@ -478,11 +500,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                     </div>
 
                     {/* Arabic Text */}
-                    <div
-                      className={`text-right ${getFontFamilyClass(fontFamily)} transition-all duration-150 select-text`}
-                      style={{ fontSize: `${fontSize}px`, lineHeight: getLineHeight(lineSpacing) }}
-                      dir="rtl"
-                    >
+                    <div className={`text-right ${getFontFamilyClass(fontFamily)} transition-all duration-150 select-text`} style={{ fontSize: `${fontSize}px`, lineHeight: getLineHeight(lineSpacing) }} dir="rtl">
                       {tokens ? (
                         tokens.map((tok, idx) => {
                           if (!tok.isWord) return <span key={idx}>{tok.text}</span>
@@ -525,9 +543,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           <div key={n.id} className="flex items-start gap-2 p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs" dir="rtl">
                             <StickyNote className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
                             <p className="flex-1 leading-relaxed text-violet-800 dark:text-violet-300">{n.text}</p>
-                            <button onClick={() => removeNote(n.id)} className="text-red-400 hover:text-red-600 shrink-0">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <button onClick={() => removeNote(n.id)} className="text-red-400 hover:text-red-600 shrink-0"><Trash2 className="w-3.5 h-3.5" /></button>
                           </div>
                         ))}
                       </div>
@@ -564,9 +580,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           </div>
         </div>
 
-        {/* ── Right notes panel (when open) ── */}
+        {/* ── Notes sidebar panel ── */}
         {showNotesSidebar && (
-          <div className={`w-56 shrink-0 sticky top-4`}>
+          <div className="w-56 shrink-0 sticky top-4">
             <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border ${themeConfig.border} space-y-3`} dir="rtl">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2">
@@ -580,20 +596,15 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   </button>
                 </div>
               </div>
-
               {currentSurahNotes.length === 0 ? (
-                <p className="text-xs opacity-50 text-center py-4 leading-relaxed">
-                  لا توجد ملاحظات بعد.<br />فعّل وضع الاختيار ثم انقر على آية أو كلمة.
-                </p>
+                <p className="text-xs opacity-50 text-center py-4 leading-relaxed">لا توجد ملاحظات.<br />انقر رقم أي آية لإضافة ملاحظة.</p>
               ) : (
                 <div className="space-y-2 max-h-[60vh] overflow-y-auto">
                   {currentSurahNotes.map((n) => (
                     <div key={n.id} className="p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs space-y-1">
                       <div className="flex items-center justify-between opacity-60">
                         <span>{n.wordIndex !== undefined ? `آية ${n.ayahNumber} — كلمة` : `آية ${n.ayahNumber}`}</span>
-                        <button onClick={() => removeNote(n.id)} className="text-red-400 hover:text-red-600">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        <button onClick={() => removeNote(n.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
                       </div>
                       <p className="leading-relaxed text-violet-800 dark:text-violet-300">{n.text}</p>
                     </div>
@@ -605,40 +616,50 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         )}
       </div>
 
-      {/* ── RARE WORD DETAILS MODAL ── */}
+      {/* ── RARE WORD MODAL ── */}
       {selectedWordInfo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSelectedWordInfo(null)}>
           <div className={`w-full max-w-md p-6 rounded-3xl ${themeConfig.bgCard} border ${themeConfig.border} shadow-2xl text-center space-y-4`} onClick={(e) => e.stopPropagation()} dir="rtl">
             <div className="flex items-center justify-between border-b pb-3 border-current/10">
               <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
-                <Sparkles className="w-4 h-4" />
-                <span>إحصاء الكلمة في القرآن الكريم</span>
+                <Sparkles className="w-4 h-4" /><span>إحصاء الكلمة في القرآن الكريم</span>
               </div>
-              <button onClick={() => setSelectedWordInfo(null)} className="p-1 rounded-lg border border-current/10 hover:bg-current/10">
-                <X className="w-4 h-4" />
-              </button>
+              <button onClick={() => setSelectedWordInfo(null)} className="p-1 rounded-lg border border-current/10 hover:bg-current/10"><X className="w-4 h-4" /></button>
             </div>
             <div className="py-3 bg-amber-500/10 rounded-2xl border border-amber-500/20">
-              <span className="font-quran-amiri text-4xl sm:text-5xl font-extrabold text-amber-800 dark:text-amber-300">
-                {selectedWordInfo.word}
-              </span>
+              <span className="font-quran-amiri text-4xl sm:text-5xl font-extrabold text-amber-800 dark:text-amber-300">{selectedWordInfo.word}</span>
             </div>
             <div className="space-y-2 text-right">
               <div className="flex items-center justify-between p-3 rounded-xl bg-black/5 dark:bg-white/5 text-sm">
-                <span className="opacity-70 font-ui">عدد مرات الورود بهذا التشكيل:</span>
+                <span className="opacity-70 font-ui">عدد مرات الورود:</span>
                 <span className="font-bold text-amber-600 dark:text-amber-400 font-mono">
-                  {selectedWordInfo.frequency === 1 ? 'مرة واحدة فقط (فريدة)' : `${selectedWordInfo.frequency} مرات`}
+                  {selectedWordInfo.frequency === 1 ? 'مرة واحدة فقط ✨' : `${selectedWordInfo.frequency} مرات`}
                 </span>
               </div>
-              <p className="text-xs opacity-80 leading-relaxed font-ui p-2">
-                📌 معيار الحساب يعتمد على المطابقة التامة للحروف مع التشكيل الكامل.
-              </p>
+              <p className="text-xs opacity-80 leading-relaxed font-ui p-2">📌 الحساب يعتمد على المطابقة التامة للحروف مع التشكيل.</p>
             </div>
-            <button onClick={() => setSelectedWordInfo(null)} className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs transition-colors">
-              إغلاق
-            </button>
+            <button onClick={() => setSelectedWordInfo(null)} className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs transition-colors">إغلاق</button>
           </div>
         </div>
+      )}
+
+      {/* ── AYAH ACTION POPUP (selection/audio mode) ── */}
+      {ayahPopup !== null && currentSurahData && (
+        <AyahPopup
+          ayahNum={ayahPopup}
+          themeConfig={themeConfig}
+          isPlaying={isPlaying && playingAyahNumber === ayahPopup}
+          isSelectionMode={isSelectionMode}
+          isAudioClickMode={isAudioClickMode}
+          hasNote={getAyahNotes(currentSurahNumber, ayahPopup).length > 0}
+          onPlay={() => {
+            if (isPlaying && playingAyahNumber === ayahPopup) pauseAudio()
+            else playAyah(ayahPopup)
+          }}
+          onNote={() => setNoteTarget({ ayahNumber: ayahPopup })}
+          onSelect={() => toggleAyahSelected(ayahPopup)}
+          onClose={() => setAyahPopup(null)}
+        />
       )}
 
       {/* ── NOTE DIALOG ── */}
