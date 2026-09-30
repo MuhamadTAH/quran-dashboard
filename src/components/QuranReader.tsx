@@ -15,12 +15,14 @@ import {
   Trash2,
   Headphones,
   MousePointer2,
+  Bot,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
 import type { FontFamily, LineSpacing } from '../types/quran'
 import { tokenizeAyah, getSurahRareStats } from '../services/wordFrequencyService'
 import { cleanAyahText } from '../services/quranService'
+import { AiAskModal } from './AiAskModal'
 
 // ─── Note Dialog ─────────────────────────────────────────────────────────────
 const NoteDialog: React.FC<{
@@ -85,28 +87,35 @@ const NoteDialog: React.FC<{
 }
 
 // ─── Ayah Action Popup ────────────────────────────────────────────────────────
-// Shows when clicking an ayah number while in selection or audio mode
 const AyahPopup: React.FC<{
   ayahNum: number
   themeConfig: ThemeColors
   isPlaying: boolean
   isSelectionMode: boolean
-  isAudioClickMode: boolean
   hasNote: boolean
   onPlay: () => void
   onNote: () => void
   onSelect: () => void
+  onAskAi: () => void
   onClose: () => void
-}> = ({ ayahNum, themeConfig, isPlaying, isSelectionMode, hasNote, onPlay, onNote, onSelect, onClose }) => (
+}> = ({ ayahNum, themeConfig, isPlaying, isSelectionMode, hasNote, onPlay, onNote, onSelect, onAskAi, onClose }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
     <div
-      className={`${themeConfig.bgCard} border ${themeConfig.border} rounded-2xl shadow-2xl p-4 w-52 space-y-2`}
+      className={`${themeConfig.bgCard} border ${themeConfig.border} rounded-2xl shadow-2xl p-4 w-56 space-y-2`}
       onClick={(e) => e.stopPropagation()}
       dir="rtl"
     >
       <p className="text-xs font-bold opacity-60 text-center pb-1 border-b border-current/10">
         الآية {ayahNum}
       </p>
+      {/* Ask AI about this ayah */}
+      <button
+        onClick={() => { onAskAi(); onClose() }}
+        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-sm font-semibold text-right transition-colors text-purple-700 dark:text-purple-300"
+      >
+        <Bot className="w-4 h-4 text-purple-500 shrink-0" />
+        اسأل الذكاء الاصطناعي
+      </button>
       {/* Play this ayah */}
       <button
         onClick={() => { onPlay(); onClose() }}
@@ -156,6 +165,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     rareWordThreshold,
     isSelectionMode,
     isAudioClickMode,
+    isAiAskMode,
     notes,
     addNote,
     removeNote,
@@ -185,6 +195,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   const [selectedAyahs, setSelectedAyahs] = useState<Set<number>>(new Set())
   // Ayah action popup (shown in selection/audio mode when clicking ayah number)
   const [ayahPopup, setAyahPopup] = useState<number | null>(null)
+  // AI Ask modal target
+  const [aiModalTarget, setAiModalTarget] = useState<{
+    ayahNumber: number
+    ayahText: string
+    wordText?: string
+  } | null>(null)
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const getFontFamilyClass = (family: FontFamily) => {
@@ -233,15 +249,28 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   }
 
   const handleWordClick = (word: string, ayahNum: number, wordIdx: number, isRare: boolean, rareFreq?: number) => {
+    if (isAiAskMode) {
+      const ayah = currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)
+      const cleanText = cleanAyahText(currentSurahNumber, ayahNum, ayah?.text || '')
+      setAiModalTarget({ ayahNumber: ayahNum, ayahText: cleanText, wordText: word })
+      return
+    }
     if (isAudioClickMode) { speakWord(word); return }
     if (isSelectionMode) { setNoteTarget({ ayahNumber: ayahNum, wordIndex: wordIdx, wordText: word }); return }
     if (isRare && rareFreq !== undefined) setSelectedWordInfo({ word, frequency: rareFreq })
   }
 
   // Ayah number click:
+  //   Ask AI Mode → open AI Ask modal for this ayah
+  //   Selection or Audio mode → open action popup (play / note / select / ask AI)
   //   Default → open note dialog for that ayah
-  //   Selection or Audio mode → open action popup (play / note / select)
   const handleAyahNumberClick = (ayahNum: number) => {
+    if (isAiAskMode) {
+      const ayah = currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)
+      const cleanText = cleanAyahText(currentSurahNumber, ayahNum, ayah?.text || '')
+      setAiModalTarget({ ayahNumber: ayahNum, ayahText: cleanText })
+      return
+    }
     if (isSelectionMode || isAudioClickMode) {
       setAyahPopup(ayahNum)
     } else {
@@ -278,19 +307,23 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     <div className="pb-28 space-y-5">
 
       {/* Active mode hint bar */}
-      {(isSelectionMode || isAudioClickMode) && (
+      {(isSelectionMode || isAudioClickMode || isAiAskMode) && (
         <div className={`text-center text-xs py-2 px-4 rounded-xl border ${
-          isSelectionMode
+          isAiAskMode
+            ? 'bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300 font-semibold'
+            : isSelectionMode
             ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300'
             : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
         }`}>
-          {isSelectionMode
+          {isAiAskMode
+            ? '🤖 وضع سؤال الذكاء الاصطناعي — انقر على أي كلمة أو رقم آية لسؤال Gemini 3.8 Flash عن الرسم أو الإعراب أو التفسير'
+            : isSelectionMode
             ? '🟦 وضع الاختيار — انقر كلمة لملاحظتها • انقر رقم الآية لخيارات'
             : '🎧 وضع الاستماع — انقر رقم الآية لخيارات • انقر كلمة لسماع نطقها'}
         </div>
       )}
 
-      {!isSelectionMode && !isAudioClickMode && (
+      {!isSelectionMode && !isAudioClickMode && !isAiAskMode && (
         <div className="text-center text-xs py-1.5 px-4 rounded-xl border border-current/10 opacity-50">
           💡 انقر على رقم أي آية لكتابة ملاحظة • انقر على كلمة مضيئة لمعرفة تكرارها
         </div>
@@ -384,8 +417,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                               <span
                                 key={idx}
                                 onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency)}
-                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                                title={isAudioClickMode ? `سماع: ${tok.cleaned}` : isSelectionMode ? 'ملاحظة' : `نادرة — ${tok.frequency} مرة`}
+                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
+                                  isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
+                                } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
+                                title={
+                                  isAiAskMode
+                                    ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                                    : isAudioClickMode
+                                    ? `سماع: ${tok.cleaned}`
+                                    : isSelectionMode
+                                    ? 'ملاحظة'
+                                    : `نادرة — ${tok.frequency} مرة`
+                                }
                               >
                                 {tok.text}
                                 {wordNote && <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
@@ -396,14 +439,25 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             <span
                               key={idx}
                               onClick={() => handleWordClick(tok.text, ayah.numberInSurah, idx, false)}
-                              className={`cursor-pointer hover:bg-amber-500/10 rounded ${wordNote ? 'ring-1 ring-violet-300 rounded px-0.5' : ''}`}
+                              className={`cursor-pointer rounded transition-colors ${
+                                isAiAskMode
+                                  ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                                  : 'hover:bg-amber-500/10'
+                              } ${wordNote ? 'ring-1 ring-violet-300 rounded px-0.5' : ''}`}
+                              title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
                             >
                               {tok.text}
                             </span>
                           )
                         })
                       ) : (
-                        <span onClick={() => handleWordClick(cleanText, ayah.numberInSurah, 0, false)} className="cursor-pointer hover:bg-amber-500/10 rounded">
+                        <span
+                          onClick={() => handleWordClick(cleanText, ayah.numberInSurah, 0, false)}
+                          className={`cursor-pointer rounded transition-colors ${
+                            isAiAskMode ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5' : 'hover:bg-amber-500/10'
+                          }`}
+                          title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الآية' : undefined}
+                        >
                           {cleanText}
                         </span>
                       )}
@@ -411,10 +465,22 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                       {/* Ayah number circle — click to open notes (default) or popup (in a mode) */}
                       <span
                         className={`ayah-number ${themeConfig.ayahMarker} cursor-pointer relative ${
-                          isAudioClickMode ? 'ring-2 ring-emerald-400/60' : isSelectionMode ? 'ring-2 ring-blue-400/60' : 'hover:ring-2 hover:ring-amber-400/60'
+                          isAiAskMode
+                            ? 'ring-2 ring-purple-400/80 bg-purple-500/15 text-purple-800 dark:text-purple-200 hover:bg-purple-500/30'
+                            : isAudioClickMode
+                            ? 'ring-2 ring-emerald-400/60'
+                            : isSelectionMode
+                            ? 'ring-2 ring-blue-400/60'
+                            : 'hover:ring-2 hover:ring-amber-400/60'
                         } ${isSelectedAyah ? '!bg-blue-500 !text-white' : ''}`}
                         onClick={() => handleAyahNumberClick(ayah.numberInSurah)}
-                        title={isAudioClickMode || isSelectionMode ? 'انقر للخيارات' : 'انقر لملاحظة'}
+                        title={
+                          isAiAskMode
+                            ? 'اسأل الذكاء الاصطناعي عن هذه الآية'
+                            : isAudioClickMode || isSelectionMode
+                            ? 'انقر للخيارات'
+                            : 'انقر لملاحظة'
+                        }
                       >
                         {ayah.numberInSurah}
                         {ayahNotes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
@@ -452,12 +518,23 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         <span
                           onClick={() => handleAyahNumberClick(ayah.numberInSurah)}
                           className={`relative w-8 h-8 rounded-full font-mono text-xs font-bold flex items-center justify-center border cursor-pointer transition-all ${
-                            isAudioClickMode ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-400'
-                            : isSelectionMode ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40 ring-1 ring-blue-400'
-                            : isSelectedAyah ? 'bg-blue-500 text-white border-blue-500'
-                            : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
+                            isAiAskMode
+                              ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/40 ring-1 ring-purple-400 hover:bg-purple-500/30'
+                              : isAudioClickMode
+                              ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 ring-1 ring-emerald-400'
+                              : isSelectionMode
+                              ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40 ring-1 ring-blue-400'
+                              : isSelectedAyah
+                              ? 'bg-blue-500 text-white border-blue-500'
+                              : 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/30'
                           }`}
-                          title={isAudioClickMode || isSelectionMode ? 'انقر للخيارات' : 'انقر لملاحظة'}
+                          title={
+                            isAiAskMode
+                              ? 'اسأل الذكاء الاصطناعي عن هذه الآية'
+                              : isAudioClickMode || isSelectionMode
+                              ? 'انقر للخيارات'
+                              : 'انقر لملاحظة'
+                          }
                         >
                           {ayah.numberInSurah}
                           {ayahNotes.length > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
@@ -471,6 +548,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            setAiModalTarget({
+                              ayahNumber: ayah.numberInSurah,
+                              ayahText: cleanText,
+                            })
+                          }}
+                          className="p-2 rounded-xl border border-purple-500/30 hover:bg-purple-500/15 text-purple-600 dark:text-purple-300 opacity-90 hover:opacity-100 transition-all"
+                          title="اسأل الذكاء الاصطناعي عن هذه الآية"
+                        >
+                          <Bot className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => isPlayingThis ? pauseAudio() : playAyah(ayah.numberInSurah)}
                           className={`p-2 rounded-xl border transition-all ${isPlayingThis ? 'bg-amber-500 text-stone-950 border-amber-500' : 'border-current/15 hover:bg-current/5 opacity-80 hover:opacity-100'}`}
@@ -513,8 +602,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                               <span
                                 key={idx}
                                 onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency)}
-                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                                title={isAudioClickMode ? `سماع: ${tok.cleaned}` : isSelectionMode ? 'ملاحظة' : `نادرة — ${tok.frequency} مرة`}
+                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
+                                  isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
+                                } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
+                                title={
+                                  isAiAskMode
+                                    ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                                    : isAudioClickMode
+                                    ? `سماع: ${tok.cleaned}`
+                                    : isSelectionMode
+                                    ? 'ملاحظة'
+                                    : `نادرة — ${tok.frequency} مرة`
+                                }
                               >
                                 {tok.text}
                                 {wordNote && <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />}
@@ -525,14 +624,25 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             <span
                               key={idx}
                               onClick={() => handleWordClick(tok.text, ayah.numberInSurah, idx, false)}
-                              className={`cursor-pointer hover:bg-amber-500/10 rounded ${wordNote ? 'ring-1 ring-violet-300 bg-violet-500/5 px-0.5' : ''}`}
+                              className={`cursor-pointer rounded transition-colors ${
+                                isAiAskMode
+                                  ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                                  : 'hover:bg-amber-500/10'
+                              } ${wordNote ? 'ring-1 ring-violet-300 bg-violet-500/5 px-0.5' : ''}`}
+                              title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
                             >
                               {tok.text}
                             </span>
                           )
                         })
                       ) : (
-                        <span onClick={() => isAudioClickMode ? speakWord(cleanText) : undefined} className={isAudioClickMode ? 'cursor-pointer' : ''}>
+                        <span
+                          onClick={() => handleWordClick(cleanText, ayah.numberInSurah, 0, false)}
+                          className={`cursor-pointer rounded transition-colors ${
+                            isAiAskMode ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5' : isAudioClickMode ? '' : 'hover:bg-amber-500/10'
+                          }`}
+                          title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الآية' : undefined}
+                        >
                           {cleanText}
                         </span>
                       )}
@@ -653,7 +763,6 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           themeConfig={themeConfig}
           isPlaying={isPlaying && playingAyahNumber === ayahPopup}
           isSelectionMode={isSelectionMode}
-          isAudioClickMode={isAudioClickMode}
           hasNote={getAyahNotes(currentSurahNumber, ayahPopup).length > 0}
           onPlay={() => {
             if (isPlaying && playingAyahNumber === ayahPopup) pauseAudio()
@@ -661,6 +770,14 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           }}
           onNote={() => setNoteTarget({ ayahNumber: ayahPopup })}
           onSelect={() => toggleAyahSelected(ayahPopup)}
+          onAskAi={() => {
+            const ayah = currentSurahData.ayahs.find((a) => a.numberInSurah === ayahPopup)
+            const cleanText = cleanAyahText(currentSurahNumber, ayahPopup, ayah?.text || '')
+            setAiModalTarget({
+              ayahNumber: ayahPopup,
+              ayahText: cleanText,
+            })
+          }}
           onClose={() => setAyahPopup(null)}
         />
       )}
@@ -687,6 +804,23 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           />
         )
       })()}
+
+      {/* ── AI ASK MODAL ── */}
+      {aiModalTarget && currentSurahData && (
+        <AiAskModal
+          isOpen={!!aiModalTarget}
+          onClose={() => setAiModalTarget(null)}
+          surahNumber={currentSurahNumber}
+          surahName={currentSurahData.name}
+          ayahNumber={aiModalTarget.ayahNumber}
+          ayahText={aiModalTarget.ayahText}
+          wordText={aiModalTarget.wordText}
+          themeConfig={themeConfig}
+          onSaveAsNote={(text) => {
+            addNote(currentSurahNumber, aiModalTarget.ayahNumber, text)
+          }}
+        />
+      )}
     </div>
   )
 }

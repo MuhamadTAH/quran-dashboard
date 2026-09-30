@@ -69,6 +69,8 @@ interface QuranContextType {
   setIsSelectionMode: (on: boolean) => void
   isAudioClickMode: boolean
   setIsAudioClickMode: (on: boolean) => void
+  isAiAskMode: boolean
+  setIsAiAskMode: (on: boolean) => void
 
   // Notes / Annotations
   notes: QuranNote[]
@@ -213,6 +215,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Interaction modes
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false)
   const [isAudioClickMode, setIsAudioClickMode] = useState<boolean>(false)
+  const [isAiAskMode, setIsAiAskMode] = useState<boolean>(false)
 
   // Notes / Annotations
   const [notes, setNotes] = useState<QuranNote[]>(() => {
@@ -662,6 +665,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsSelectionMode,
         isAudioClickMode,
         setIsAudioClickMode,
+        isAiAskMode,
+        setIsAiAskMode,
         notes,
         addNote,
         removeNote,

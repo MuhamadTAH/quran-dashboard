@@ -18,6 +18,7 @@ import {
   AlignJustify,
   Type,
   Palette,
+  Bot,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -54,22 +55,22 @@ const ModeCircle: React.FC<{
   <button
     onClick={onClick}
     title={label}
-    className={`relative flex flex-col items-center gap-1 group`}
+    className={`relative flex flex-col items-center gap-1 group w-full`}
   >
     <span
-      className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all shadow-sm ${
+      className={`w-9 h-9 rounded-full flex items-center justify-center border transition-all shadow-sm ${
         active
-          ? `${activeClass} border-transparent shadow-md`
-          : 'border-current/20 opacity-60 hover:opacity-100 hover:border-current/40'
+          ? `${activeClass} border-transparent shadow-md scale-105`
+          : 'border-current/20 opacity-65 hover:opacity-100 hover:border-current/40 hover:bg-current/5'
       }`}
     >
       {icon}
     </span>
-    <span className="text-[9px] font-bold leading-tight text-center opacity-70 group-hover:opacity-100 w-12">
+    <span className="text-[9px] font-bold leading-tight text-center opacity-75 group-hover:opacity-100 truncate w-full">
       {label}
     </span>
     {badge !== undefined && badge > 0 && (
-      <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-violet-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">
+      <span className="absolute -top-1 -right-0.5 w-4 h-4 bg-violet-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold shadow">
         {badge}
       </span>
     )}
@@ -115,6 +116,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
     setIsSelectionMode,
     isAudioClickMode,
     setIsAudioClickMode,
+    isAiAskMode,
+    setIsAiAskMode,
     activeTab,
     setActiveTab,
     setIsSurahSelectorOpen,
@@ -443,11 +446,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
 
         {/* Mode circles */}
         <div className="py-1">
-          <p className="text-[10px] font-bold opacity-60 px-1 mb-3">أوضاع التفاعل</p>
-          <div className="grid grid-cols-4 gap-1 justify-items-center">
+          <p className="text-[10px] font-bold opacity-60 px-1 mb-2.5">أوضاع التفاعل</p>
+          <div className="grid grid-cols-5 gap-0.5 justify-items-center">
             {/* Rare words */}
             <ModeCircle
-              icon={<Zap className="w-4 h-4" />}
+              icon={<Zap className="w-3.5 h-3.5" />}
               label="نادرة"
               active={highlightRareWords}
               activeClass="bg-amber-500 text-stone-950"
@@ -456,31 +459,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
 
             {/* Selection mode */}
             <ModeCircle
-              icon={<MousePointer2 className="w-4 h-4" />}
+              icon={<MousePointer2 className="w-3.5 h-3.5" />}
               label="اختيار"
               active={isSelectionMode}
               activeClass="bg-blue-500 text-white"
               onClick={() => {
                 setIsSelectionMode(!isSelectionMode)
-                if (!isSelectionMode) setIsAudioClickMode(false)
+                if (!isSelectionMode) {
+                  setIsAudioClickMode(false)
+                  setIsAiAskMode(false)
+                }
               }}
             />
 
             {/* Audio click mode */}
             <ModeCircle
-              icon={<Headphones className="w-4 h-4" />}
+              icon={<Headphones className="w-3.5 h-3.5" />}
               label="استماع"
               active={isAudioClickMode}
               activeClass="bg-emerald-600 text-white"
               onClick={() => {
                 setIsAudioClickMode(!isAudioClickMode)
-                if (!isAudioClickMode) setIsSelectionMode(false)
+                if (!isAudioClickMode) {
+                  setIsSelectionMode(false)
+                  setIsAiAskMode(false)
+                }
+              }}
+            />
+
+            {/* Ask AI mode */}
+            <ModeCircle
+              icon={<Bot className="w-3.5 h-3.5" />}
+              label="اسأل AI"
+              active={isAiAskMode}
+              activeClass="bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-purple-500/25"
+              onClick={() => {
+                setIsAiAskMode(!isAiAskMode)
+                if (!isAiAskMode) {
+                  setIsSelectionMode(false)
+                  setIsAudioClickMode(false)
+                }
               }}
             />
 
             {/* Notes panel */}
             <ModeCircle
-              icon={<StickyNote className="w-4 h-4" />}
+              icon={<StickyNote className="w-3.5 h-3.5" />}
               label="ملاحظات"
               active={showNotesSidebar}
               activeClass="bg-violet-600 text-white"
@@ -512,13 +536,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
           )}
 
           {/* Active mode hint */}
-          {(isSelectionMode || isAudioClickMode) && (
+          {(isSelectionMode || isAudioClickMode || isAiAskMode) && (
             <p className={`mt-2 text-[9px] leading-relaxed px-2 py-1.5 rounded-lg ${
-              isSelectionMode
+              isAiAskMode
+                ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 font-semibold'
+                : isSelectionMode
                 ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
                 : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
             }`}>
-              {isSelectionMode
+              {isAiAskMode
+                ? '🤖 وضع سؤال الذكاء: انقر على أي كلمة أو رقم آية لطرح سؤالك عنها'
+                : isSelectionMode
                 ? 'انقر على آية أو كلمة لإضافة ملاحظة'
                 : 'انقر على رقم الآية للسماع، أو أي كلمة لنطقها'}
             </p>
