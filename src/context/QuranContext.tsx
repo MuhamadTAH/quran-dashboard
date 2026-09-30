@@ -15,12 +15,22 @@ import {
   getAyahAudioUrl,
 } from '../services/quranService'
 
+// ─── Note Types ─────────────────────────────────────────────────────────────
+export interface QuranNote {
+  id: string
+  surahNumber: number
+  ayahNumber: number
+  wordIndex?: number   // undefined = ayah-level note, number = word-level note
+  text: string
+  timestamp: number
+}
+
 interface QuranContextType {
   // Theme & Appearance
   theme: ThemeMode
   setTheme: (theme: ThemeMode) => void
   
-  // Font Size & Typography (Direct requirement from user!)
+  // Font Size & Typography
   fontSize: number
   setFontSize: (size: number) => void
   increaseFontSize: () => void
@@ -39,7 +49,7 @@ interface QuranContextType {
   showTafseer: boolean
   setShowTafseer: (show: boolean) => void
 
-  // Rare Words (Least frequent words with exact tashkeel)
+  // Rare Words
   highlightRareWords: boolean
   setHighlightRareWords: (highlight: boolean) => void
   rareWordThreshold: number
@@ -48,6 +58,19 @@ interface QuranContextType {
   // Dark Mode Helper
   toggleDarkMode: () => void
   isDarkMode: boolean
+
+  // Interaction Modes
+  isSelectionMode: boolean
+  setIsSelectionMode: (on: boolean) => void
+  isAudioClickMode: boolean
+  setIsAudioClickMode: (on: boolean) => void
+
+  // Notes / Annotations
+  notes: QuranNote[]
+  addNote: (surahNumber: number, ayahNumber: number, text: string, wordIndex?: number) => void
+  removeNote: (id: string) => void
+  getAyahNotes: (surahNumber: number, ayahNumber: number) => QuranNote[]
+  getWordNote: (surahNumber: number, ayahNumber: number, wordIndex: number) => QuranNote | undefined
 
   // Navigation & Views
   activeTab: 'dashboard' | 'quran' | 'adhkar' | 'bookmarks'
@@ -85,6 +108,7 @@ interface QuranContextType {
   audioDuration: number
   audioCurrentTime: number
   seekAudio: (seconds: number) => void
+  speakWord: (word: string) => void
 }
 
 const QuranContext = createContext<QuranContextType | undefined>(undefined)
@@ -122,7 +146,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [showTranslation, setShowTranslation] = useState<boolean>(true)
   const [showTafseer, setShowTafseer] = useState<boolean>(false)
 
-  // Rare Words (Least frequent words with exact diacritics)
+  // Rare Words
   const [highlightRareWords, setHighlightRareWordsState] = useState<boolean>(() => {
     const saved = localStorage.getItem('quran_highlight_rare_words')
     return saved !== null ? saved === 'true' : true
@@ -153,6 +177,53 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       localStorage.setItem('quran_prev_theme', theme)
       setTheme('dark')
     }
+  }
+
+  // Interaction modes
+  const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false)
+  const [isAudioClickMode, setIsAudioClickMode] = useState<boolean>(false)
+
+  // Notes / Annotations
+  const [notes, setNotes] = useState<QuranNote[]>(() => {
+    try {
+      const saved = localStorage.getItem('quran_notes')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  const saveNotes = (updated: QuranNote[]) => {
+    setNotes(updated)
+    localStorage.setItem('quran_notes', JSON.stringify(updated))
+  }
+
+  const addNote = (surahNumber: number, ayahNumber: number, text: string, wordIndex?: number) => {
+    const note: QuranNote = {
+      id: `note_${surahNumber}_${ayahNumber}_${wordIndex ?? 'a'}_${Date.now()}`,
+      surahNumber,
+      ayahNumber,
+      wordIndex,
+      text,
+      timestamp: Date.now(),
+    }
+    saveNotes([note, ...notes])
+  }
+
+  const removeNote = (id: string) => {
+    saveNotes(notes.filter((n) => n.id !== id))
+  }
+
+  const getAyahNotes = (surahNumber: number, ayahNumber: number) => {
+    return notes.filter(
+      (n) => n.surahNumber === surahNumber && n.ayahNumber === ayahNumber && n.wordIndex === undefined
+    )
+  }
+
+  const getWordNote = (surahNumber: number, ayahNumber: number, wordIndex: number) => {
+    return notes.find(
+      (n) => n.surahNumber === surahNumber && n.ayahNumber === ayahNumber && n.wordIndex === wordIndex
+    )
   }
 
   // Navigation tab
@@ -296,7 +367,6 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentSurahData(data)
       saveLastRead(surahNumber, data.name, targetAyah || 1)
 
-      // If targetAyah specified, scroll into view after render
       if (targetAyah) {
         setTimeout(() => {
           const el = document.getElementById(`ayah-${targetAyah}`)
@@ -312,13 +382,22 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }
 
+  // Word-level TTS (Web Speech API — Arabic)
+  const speakWord = (word: string) => {
+    if (!('speechSynthesis' in window)) return
+    window.speechSynthesis.cancel()
+    const utt = new SpeechSynthesisUtterance(word)
+    utt.lang = 'ar-SA'
+    utt.rate = 0.8
+    window.speechSynthesis.speak(utt)
+  }
+
   // Audio setup
   useEffect(() => {
     const audio = new Audio()
     audioRef.current = audio
 
     const handleEnded = () => {
-      // Auto play next ayah in surah
       if (currentSurahData && playingAyahNumber !== null) {
         if (playingAyahNumber < currentSurahData.numberOfAyahs) {
           playAyah(playingAyahNumber + 1)
@@ -368,7 +447,6 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setPlayingAyahNumber(ayahNumberInSurah)
         saveLastRead(currentSurahData.number, currentSurahData.name, ayahNumberInSurah)
 
-        // Smooth scroll to active ayah
         const el = document.getElementById(`ayah-${ayahNumberInSurah}`)
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -469,6 +547,15 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setRareWordThreshold,
         toggleDarkMode,
         isDarkMode,
+        isSelectionMode,
+        setIsSelectionMode,
+        isAudioClickMode,
+        setIsAudioClickMode,
+        notes,
+        addNote,
+        removeNote,
+        getAyahNotes,
+        getWordNote,
         activeTab,
         setActiveTab,
         currentSurahNumber,
@@ -500,6 +587,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         audioDuration,
         audioCurrentTime,
         seekAudio,
+        speakWord,
       }}
     >
       {children}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { QuranProvider, useQuran } from './context/QuranContext'
-import { Header } from './components/Header'
+import { Sidebar } from './components/Sidebar'
 import { DashboardHome } from './components/DashboardHome'
 import { QuranReader } from './components/QuranReader'
 import { AdhkarView } from './components/AdhkarView'
@@ -9,60 +9,41 @@ import { SurahSelectorModal } from './components/SurahSelectorModal'
 import { SettingsModal } from './components/SettingsModal'
 import { AudioPlayerBar } from './components/AudioPlayerBar'
 import { THEME_CONFIGS } from './utils/themeStyles'
-import { BookOpen } from 'lucide-react'
 
 const MainContent: React.FC = () => {
-  const { theme, activeTab, setActiveTab } = useQuran()
+  const { theme, activeTab } = useQuran()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [showNotesSidebar, setShowNotesSidebar] = useState(false)
   const themeConfig = THEME_CONFIGS[theme]
 
   return (
     <div
-      className={`min-h-screen transition-colors duration-200 ${themeConfig.bg} flex flex-col font-ui selection:bg-amber-400/40 selection:text-current`}
+      className={`min-h-screen transition-colors duration-200 ${themeConfig.bg} font-ui selection:bg-amber-400/40 selection:text-current`}
       dir="rtl"
     >
-      {/* Top Header */}
-      <Header onOpenSettings={() => setIsSettingsOpen(true)} />
+      {/* ── Fixed right sidebar ── */}
+      <Sidebar
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        showNotesSidebar={showNotesSidebar}
+        setShowNotesSidebar={setShowNotesSidebar}
+      />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-6 sm:py-8">
-        {activeTab === 'dashboard' && <DashboardHome />}
-        {activeTab === 'quran' && <QuranReader />}
-        {activeTab === 'adhkar' && <AdhkarView />}
-        {activeTab === 'bookmarks' && <BookmarksView />}
-      </main>
+      {/* ── Main content area (offset by sidebar width 224px = w-56) ── */}
+      <div className="mr-56 min-h-screen flex flex-col">
+        <main className="flex-1 px-4 sm:px-8 py-6 sm:py-8 max-w-5xl">
+          {activeTab === 'dashboard' && <DashboardHome />}
+          {activeTab === 'quran' && (
+            <QuranReader
+              showNotesSidebar={showNotesSidebar}
+              setShowNotesSidebar={setShowNotesSidebar}
+            />
+          )}
+          {activeTab === 'adhkar' && <AdhkarView />}
+          {activeTab === 'bookmarks' && <BookmarksView />}
+        </main>
+      </div>
 
-      {/* Footer */}
-      <footer className={`py-6 border-t ${themeConfig.border} mt-auto text-center text-xs opacity-75`}>
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5">
-            <BookOpen className="w-4 h-4 text-amber-500" />
-            <span className="font-bold">لوحة القرآن الكريم والأذكار</span>
-            <span>— تلاوة وتدبر وتسبيح</span>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-semibold">
-            <button onClick={() => setActiveTab('dashboard')} className="hover:underline">
-              الرئيسية
-            </button>
-            <button onClick={() => setActiveTab('quran')} className="hover:underline">
-              المصحف
-            </button>
-            <button onClick={() => setActiveTab('adhkar')} className="hover:underline">
-              الأذكار
-            </button>
-            <button onClick={() => setIsSettingsOpen(true)} className="hover:underline">
-              إعدادات الخط
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1 text-[11px] opacity-70">
-            <span>صدقة جارية نفعنا الله وإياكم بها</span>
-          </div>
-        </div>
-      </footer>
-
-      {/* Modals & Overlays */}
+      {/* ── Modals & Overlays ── */}
       <SurahSelectorModal />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <AudioPlayerBar />
