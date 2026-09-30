@@ -40,8 +40,11 @@ interface QuranContextType {
   setFontFamily: (font: FontFamily) => void
   lineSpacing: LineSpacing
   setLineSpacing: (spacing: LineSpacing) => void
-  readingWidth: 'normal' | 'wide' | 'full'
-  setReadingWidth: (w: 'normal' | 'wide' | 'full') => void
+  readingWidth: number
+  setReadingWidth: (w: number) => void
+  increaseReadingWidth: () => void
+  decreaseReadingWidth: () => void
+  resetReadingWidth: () => void
 
   // Reading Preferences
   readingMode: ReadingMode
@@ -139,14 +142,31 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return (localStorage.getItem('quran_line_spacing') as LineSpacing) || 'relaxed'
   })
 
-  // Reading area width
-  const [readingWidth, setReadingWidthState] = useState<'normal' | 'wide' | 'full'>(() => {
-    return (localStorage.getItem('quran_reading_width') as 'normal' | 'wide' | 'full') || 'wide'
+  // Reading area width (numeric in pixels)
+  const DEFAULT_READING_WIDTH = 1100
+  const MIN_READING_WIDTH = 600
+  const MAX_READING_WIDTH = 2200
+
+  const [readingWidth, setReadingWidthState] = useState<number>(() => {
+    const saved = localStorage.getItem('quran_reading_width_px')
+    if (saved) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed) && parsed >= MIN_READING_WIDTH && parsed <= MAX_READING_WIDTH) {
+        return parsed
+      }
+    }
+    return DEFAULT_READING_WIDTH
   })
-  const setReadingWidth = (w: 'normal' | 'wide' | 'full') => {
-    setReadingWidthState(w)
-    localStorage.setItem('quran_reading_width', w)
+
+  const setReadingWidth = (w: number) => {
+    const clamped = Math.min(MAX_READING_WIDTH, Math.max(MIN_READING_WIDTH, w))
+    setReadingWidthState(clamped)
+    localStorage.setItem('quran_reading_width_px', clamped.toString())
   }
+
+  const increaseReadingWidth = () => setReadingWidth(readingWidth + 50)
+  const decreaseReadingWidth = () => setReadingWidth(readingWidth - 50)
+  const resetReadingWidth = () => setReadingWidth(DEFAULT_READING_WIDTH)
 
   // Reading mode
   const [readingMode, setReadingModeState] = useState<ReadingMode>(() => {
@@ -237,9 +257,43 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     )
   }
 
-  // Navigation tab
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'quran' | 'adhkar' | 'bookmarks'>('dashboard')
-  const [currentSurahNumber, setCurrentSurahNumber] = useState<number>(1)
+  // Navigation tab with localStorage persistence
+  const [activeTab, setActiveTabState] = useState<'dashboard' | 'quran' | 'adhkar' | 'bookmarks'>(() => {
+    const saved = localStorage.getItem('quran_active_tab')
+    if (saved && ['dashboard', 'quran', 'adhkar', 'bookmarks'].includes(saved)) {
+      return saved as any
+    }
+    return 'dashboard'
+  })
+
+  const setActiveTab = (tab: 'dashboard' | 'quran' | 'adhkar' | 'bookmarks') => {
+    setActiveTabState(tab)
+    localStorage.setItem('quran_active_tab', tab)
+  }
+
+  // Current Surah with localStorage persistence
+  const [currentSurahNumber, setCurrentSurahNumberState] = useState<number>(() => {
+    const saved = localStorage.getItem('quran_current_surah')
+    if (saved) {
+      const num = parseInt(saved, 10)
+      if (!isNaN(num) && num >= 1 && num <= 114) return num
+    }
+    const last = localStorage.getItem('quran_last_read')
+    if (last) {
+      try {
+        const parsed = JSON.parse(last)
+        if (parsed?.surahNumber && parsed.surahNumber >= 1 && parsed.surahNumber <= 114) {
+          return parsed.surahNumber
+        }
+      } catch {}
+    }
+    return 1
+  })
+
+  const setCurrentSurahNumber = (num: number) => {
+    setCurrentSurahNumberState(num)
+    localStorage.setItem('quran_current_surah', num.toString())
+  }
   const [currentSurahData, setCurrentSurahData] = useState<SurahData | null>(null)
   const [isLoadingSurah, setIsLoadingSurah] = useState<boolean>(false)
   const [surahError, setSurahError] = useState<string | null>(null)
@@ -376,7 +430,20 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const data = await fetchSurah(surahNumber)
       setCurrentSurahNumber(surahNumber)
       setCurrentSurahData(data)
-      saveLastRead(surahNumber, data.name, targetAyah || 1)
+      localStorage.setItem('quran_current_surah', surahNumber.toString())
+
+      // Preserve existing ayahNumber if reloading same surah without targetAyah
+      setLastRead((prevLastRead) => {
+        const ayah = targetAyah || (prevLastRead?.surahNumber === surahNumber ? prevLastRead.ayahNumber : 1)
+        const item: LastRead = {
+          surahNumber,
+          surahName: data.name,
+          ayahNumber: ayah,
+          timestamp: Date.now(),
+        }
+        localStorage.setItem('quran_last_read', JSON.stringify(item))
+        return item
+      })
 
       if (targetAyah) {
         setTimeout(() => {
@@ -527,9 +594,37 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }
 
-  // Preload Surah 1 on initial mount
+  // Load initial surah on mount (restores last read or last visited surah)
   useEffect(() => {
-    loadSurah(1)
+    const savedSurah = localStorage.getItem('quran_current_surah')
+    let initialSurah = 1
+    if (savedSurah) {
+      const num = parseInt(savedSurah, 10)
+      if (!isNaN(num) && num >= 1 && num <= 114) initialSurah = num
+    } else {
+      const last = localStorage.getItem('quran_last_read')
+      if (last) {
+        try {
+          const parsed = JSON.parse(last)
+          if (parsed?.surahNumber && parsed.surahNumber >= 1 && parsed.surahNumber <= 114) {
+            initialSurah = parsed.surahNumber
+          }
+        } catch {}
+      }
+    }
+
+    let targetAyah: number | undefined
+    const last = localStorage.getItem('quran_last_read')
+    if (last) {
+      try {
+        const parsed = JSON.parse(last)
+        if (parsed?.surahNumber === initialSurah && parsed?.ayahNumber) {
+          targetAyah = parsed.ayahNumber
+        }
+      } catch {}
+    }
+
+    loadSurah(initialSurah, targetAyah)
   }, [])
 
   return (
@@ -548,6 +643,9 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setLineSpacing,
         readingWidth,
         setReadingWidth,
+        increaseReadingWidth,
+        decreaseReadingWidth,
+        resetReadingWidth,
         readingMode,
         setReadingMode,
         showTranslation,

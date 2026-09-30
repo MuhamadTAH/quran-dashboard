@@ -35,6 +35,16 @@ export const RECITERS: Reciter[] = [
   },
 ]
 
+// Bismillah prefix regex for stripping redundant Bismillah from Ayah 1 of Surahs 2..114
+export const BISMILLAH_PREFIX_REGEX = /^بِسْمِ\s+[\u0600-\u06FF\s]+?[ٱا]لرَّحِيمِ\s*/u
+
+export function cleanAyahText(surahNumber: number, ayahNumberInSurah: number, text: string): string {
+  if (surahNumber > 1 && ayahNumberInSurah === 1) {
+    return text.replace(BISMILLAH_PREFIX_REGEX, '').trim()
+  }
+  return text
+}
+
 // In-memory cache for surahs
 const surahCache = new Map<number, SurahData>()
 
@@ -52,7 +62,7 @@ Object.entries(typedPreloaded).forEach(([key, editions]) => {
       const ayahs: Ayah[] = uthmani.ayahs.map((a: any, idx: number) => ({
         number: a.number,
         numberInSurah: a.numberInSurah,
-        text: a.text,
+        text: cleanAyahText(surahNum, a.numberInSurah, a.text),
         translation: english?.ayahs?.[idx]?.text || '',
         tafseer: muyassar?.ayahs?.[idx]?.text || '',
         juz: a.juz,
@@ -112,6 +122,9 @@ export async function fetchSurah(surahNumber: number): Promise<SurahData> {
     const local = localStorage.getItem(storageKey)
     if (local) {
       const parsed: SurahData = JSON.parse(local)
+      if (parsed.ayahs && parsed.ayahs.length > 0 && parsed.number > 1) {
+        parsed.ayahs[0].text = cleanAyahText(parsed.number, 1, parsed.ayahs[0].text)
+      }
       surahCache.set(surahNumber, parsed)
       return parsed
     }
@@ -138,7 +151,7 @@ export async function fetchSurah(surahNumber: number): Promise<SurahData> {
   const ayahs: Ayah[] = uthmani.ayahs.map((a: any, idx: number) => ({
     number: a.number,
     numberInSurah: a.numberInSurah,
-    text: a.text,
+    text: cleanAyahText(surahNumber, a.numberInSurah, a.text),
     translation: english?.ayahs?.[idx]?.text || '',
     tafseer: muyassar?.ayahs?.[idx]?.text || '',
     juz: a.juz,

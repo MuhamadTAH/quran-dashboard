@@ -10,12 +10,6 @@ import { SettingsModal } from './components/SettingsModal'
 import { AudioPlayerBar } from './components/AudioPlayerBar'
 import { THEME_CONFIGS } from './utils/themeStyles'
 
-const widthClass = {
-  normal: 'max-w-3xl',
-  wide: 'max-w-5xl',
-  full: 'max-w-none',
-}
-
 const MainContent: React.FC = () => {
   const { theme, activeTab, readingWidth } = useQuran()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -34,9 +28,12 @@ const MainContent: React.FC = () => {
         setShowNotesSidebar={setShowNotesSidebar}
       />
 
-      {/* ── Main content area — offset by sidebar (w-56 = 224px), then centered ── */}
+      {/* ── Main content area — offset by sidebar (w-56 = 224px), then centered with numeric max-width ── */}
       <div className="mr-56 min-h-screen flex justify-center">
-        <main className={`flex-1 w-full ${widthClass[readingWidth]} px-5 sm:px-8 py-6 sm:py-8`}>
+        <main
+          className="flex-1 w-full px-4 sm:px-8 py-6 sm:py-8 transition-[max-width] duration-150"
+          style={{ maxWidth: readingWidth >= 2000 ? '100%' : `${readingWidth}px` }}
+        >
           {activeTab === 'dashboard' && <DashboardHome />}
           {activeTab === 'quran' && (
             <QuranReader

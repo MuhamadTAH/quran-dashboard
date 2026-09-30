@@ -20,6 +20,7 @@ import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
 import type { FontFamily, LineSpacing } from '../types/quran'
 import { tokenizeAyah, getSurahRareStats } from '../services/wordFrequencyService'
+import { cleanAyahText } from '../services/quranService'
 
 // ─── Note Dialog ─────────────────────────────────────────────────────────────
 const NoteDialog: React.FC<{
@@ -348,8 +349,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             </button>
           </div>
 
-          {/* Bismillah */}
-          {currentSurahNumber !== 9 && (
+          {/* Bismillah Header — for all surahs except Al-Fatihah (where Ayah 1 is Bismillah) and At-Tawbah (Surah 9) */}
+          {currentSurahNumber !== 1 && currentSurahNumber !== 9 && (
             <div className="text-center py-4">
               <div className="inline-block text-2xl sm:text-3xl lg:text-4xl font-quran-amiri text-amber-700 dark:text-amber-400 select-none px-6 py-2 border-y border-amber-500/20">
                 بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
@@ -364,7 +365,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 {currentSurahData.ayahs.map((ayah) => {
                   const isPlayingThis = isPlaying && playingAyahNumber === ayah.numberInSurah
                   const isSelectedAyah = selectedAyahs.has(ayah.numberInSurah)
-                  const tokens = highlightRareWords ? tokenizeAyah(ayah.text, rareWordThreshold) : null
+                  const cleanText = cleanAyahText(currentSurahNumber, ayah.numberInSurah, ayah.text)
+                  const tokens = highlightRareWords ? tokenizeAyah(cleanText, rareWordThreshold) : null
                   const ayahNotes = getAyahNotes(currentSurahNumber, ayah.numberInSurah)
 
                   return (
@@ -401,8 +403,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           )
                         })
                       ) : (
-                        <span onClick={() => handleWordClick(ayah.text, ayah.numberInSurah, 0, false)} className="cursor-pointer hover:bg-amber-500/10 rounded">
-                          {ayah.text}
+                        <span onClick={() => handleWordClick(cleanText, ayah.numberInSurah, 0, false)} className="cursor-pointer hover:bg-amber-500/10 rounded">
+                          {cleanText}
                         </span>
                       )}
 
@@ -429,7 +431,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 const isBookmarkedAyah = isBookmarked(currentSurahNumber, ayah.numberInSurah)
                 const isPlayingThis = isPlaying && playingAyahNumber === ayah.numberInSurah
                 const isSelectedAyah = selectedAyahs.has(ayah.numberInSurah)
-                const tokens = highlightRareWords ? tokenizeAyah(ayah.text, rareWordThreshold) : null
+                const cleanText = cleanAyahText(currentSurahNumber, ayah.numberInSurah, ayah.text)
+                const tokens = highlightRareWords ? tokenizeAyah(cleanText, rareWordThreshold) : null
                 const ayahNotes = getAyahNotes(currentSurahNumber, ayah.numberInSurah)
 
                 return (
@@ -483,14 +486,14 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           <StickyNote className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => toggleBookmark(currentSurahNumber, currentSurahData.name, ayah.numberInSurah, ayah.text)}
+                          onClick={() => toggleBookmark(currentSurahNumber, currentSurahData.name, ayah.numberInSurah, cleanText)}
                           className={`p-2 rounded-xl border transition-all ${isBookmarkedAyah ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/50' : 'border-current/15 hover:bg-current/5 opacity-80 hover:opacity-100'}`}
                           title={isBookmarkedAyah ? 'إزالة العلامة' : 'حفظ علامة'}
                         >
                           {isBookmarkedAyah ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
                         </button>
                         <button
-                          onClick={() => handleCopyAyah(ayah.numberInSurah, ayah.text)}
+                          onClick={() => handleCopyAyah(ayah.numberInSurah, cleanText)}
                           className="p-2 rounded-xl border border-current/15 hover:bg-current/5 opacity-80 hover:opacity-100 transition-all"
                           title="نسخ"
                         >
@@ -529,8 +532,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           )
                         })
                       ) : (
-                        <span onClick={() => isAudioClickMode ? speakWord(ayah.text) : undefined} className={isAudioClickMode ? 'cursor-pointer' : ''}>
-                          {ayah.text}
+                        <span onClick={() => isAudioClickMode ? speakWord(cleanText) : undefined} className={isAudioClickMode ? 'cursor-pointer' : ''}>
+                          {cleanText}
                         </span>
                       )}
                       <span className={`ayah-number ${themeConfig.ayahMarker}`}>{ayah.numberInSurah}</span>

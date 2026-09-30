@@ -98,6 +98,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
     setLineSpacing,
     readingWidth,
     setReadingWidth,
+    increaseReadingWidth,
+    decreaseReadingWidth,
+    resetReadingWidth,
     readingMode,
     setReadingMode,
     showTranslation,
@@ -323,24 +326,63 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
             </div>
           </div>
 
-          {/* Reading area width */}
-          <div className="space-y-1">
-            <span className="text-[11px] opacity-60">عرض منطقة القراءة</span>
-            <div className="flex gap-1">
-              {(['normal', 'wide', 'full'] as const).map((w) => (
+          {/* Reading area width (numeric in pixels) */}
+          <div className="space-y-1.5 pt-1 border-t border-current/10">
+            <div className="flex items-center justify-between text-[11px] opacity-70">
+              <span>عرض مساحة القراءة</span>
+              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                {readingWidth >= 2000 ? 'كامل الشاشة' : `${readingWidth}px`}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={decreaseReadingWidth}
+                disabled={readingWidth <= 600}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-current/5 hover:bg-current/10 disabled:opacity-30 transition-all"
+                title="تضييق العرض (-50px)"
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <input
+                type="range"
+                min="600"
+                max="2000"
+                step="50"
+                value={readingWidth}
+                onChange={(e) => setReadingWidth(parseInt(e.target.value, 10))}
+                className="flex-1 accent-amber-500 h-1.5"
+              />
+              <button
+                onClick={increaseReadingWidth}
+                disabled={readingWidth >= 2000}
+                className="w-7 h-7 flex items-center justify-center rounded-lg bg-current/5 hover:bg-current/10 disabled:opacity-30 transition-all"
+                title="توسيع العرض (+50px)"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            {/* Quick numeric presets */}
+            <div className="flex gap-1 pt-0.5">
+              {[800, 1100, 1400, 2000].map((val) => (
                 <button
-                  key={w}
-                  onClick={() => setReadingWidth(w)}
-                  className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
-                    readingWidth === w
-                      ? 'bg-amber-500 text-stone-950'
+                  key={val}
+                  onClick={() => setReadingWidth(val)}
+                  className={`flex-1 py-1 rounded text-[10px] font-mono transition-all ${
+                    readingWidth === val
+                      ? 'bg-amber-500 text-stone-950 font-bold'
                       : 'bg-current/5 opacity-60 hover:opacity-100'
                   }`}
                 >
-                  {w === 'normal' ? 'ضيق' : w === 'wide' ? 'عريض' : 'ممتد'}
+                  {val === 2000 ? '100%' : `${val}px`}
                 </button>
               ))}
             </div>
+            <button
+              onClick={resetReadingWidth}
+              className="w-full text-[10px] opacity-50 hover:opacity-80 flex items-center justify-center gap-1"
+            >
+              <RotateCcw className="w-2.5 h-2.5" /> استعادة العرض الافتراضي (1100px)
+            </button>
           </div>
         </Group>
 
