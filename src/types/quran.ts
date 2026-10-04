@@ -2,9 +2,30 @@ export type ThemeMode = 'emerald' | 'parchment' | 'dark' | 'pearl'
 
 export type FontFamily = 'amiri' | 'scheherazade' | 'noto'
 
-export type ReadingMode = 'mushaf' | 'verse'
+export type ReadingMode = 'verse' | 'page' | 'scroll_pages' | 'mushaf'
 
 export type LineSpacing = 'normal' | 'relaxed' | 'spacious'
+
+export interface PageAyah {
+  number: number
+  numberInSurah: number
+  text: string
+  surahNumber: number
+  surahName: string
+  surahEnglishName?: string
+  juz: number
+  page: number
+  hizbQuarter?: number
+  isFirstAyahOfSurah?: boolean
+}
+
+export interface PageData {
+  pageNumber: number
+  juzNumber: number
+  hizbQuarter?: number
+  surahs: { number: number; name: string }[]
+  ayahs: PageAyah[]
+}
 
 export interface SurahMeta {
   number: number

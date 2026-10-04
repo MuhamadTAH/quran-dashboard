@@ -13,6 +13,8 @@ import {
   RECITERS,
   fetchSurah,
   getAyahAudioUrl,
+  getPageForSurah,
+  getSurahForPage,
 } from '../services/quranService'
 
 // ─── Note Types ─────────────────────────────────────────────────────────────
@@ -90,6 +92,11 @@ interface QuranContextType {
   loadSurah: (surahNumber: number, targetAyah?: number) => Promise<void>
   isSurahSelectorOpen: boolean
   setIsSurahSelectorOpen: (open: boolean) => void
+
+  // Page Tracking (1 to 604)
+  currentPageNumber: number
+  setCurrentPageNumber: (page: number) => void
+  goToPage: (page: number) => void
 
   // Bookmarks & History
   bookmarks: Bookmark[]
@@ -302,6 +309,33 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [surahError, setSurahError] = useState<string | null>(null)
   const [isSurahSelectorOpen, setIsSurahSelectorOpen] = useState<boolean>(false)
 
+  // Page Tracking (1 to 604)
+  const [currentPageNumber, setCurrentPageNumberState] = useState<number>(() => {
+    const saved = localStorage.getItem('quran_current_page')
+    if (saved) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 604) return parsed
+    }
+    const surahSaved = localStorage.getItem('quran_current_surah')
+    const sNum = surahSaved ? parseInt(surahSaved, 10) : 1
+    return getPageForSurah(sNum)
+  })
+
+  const setCurrentPageNumber = (page: number) => {
+    const clamped = Math.max(1, Math.min(604, page))
+    setCurrentPageNumberState(clamped)
+    localStorage.setItem('quran_current_page', clamped.toString())
+  }
+
+  const goToPage = (page: number) => {
+    const clamped = Math.max(1, Math.min(604, page))
+    setCurrentPageNumber(clamped)
+    const surah = getSurahForPage(clamped)
+    if (surah && surah !== currentSurahNumber) {
+      loadSurah(surah)
+    }
+  }
+
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
     try {
@@ -434,6 +468,11 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentSurahNumber(surahNumber)
       setCurrentSurahData(data)
       localStorage.setItem('quran_current_surah', surahNumber.toString())
+
+      // Sync page number with surah start page
+      const surahPage = getPageForSurah(surahNumber)
+      setCurrentPageNumberState(surahPage)
+      localStorage.setItem('quran_current_page', surahPage.toString())
 
       // Preserve existing ayahNumber if reloading same surah without targetAyah
       setLastRead((prevLastRead) => {
@@ -707,6 +746,9 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loadSurah,
         isSurahSelectorOpen,
         setIsSurahSelectorOpen,
+        currentPageNumber,
+        setCurrentPageNumber,
+        goToPage,
         bookmarks,
         toggleBookmark,
         isBookmarked,

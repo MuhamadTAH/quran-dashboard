@@ -1,6 +1,6 @@
 import surahsList from '../data/surahs.json'
 import preloadedSurahs from '../data/preloadedSurahs.json'
-import type { SurahMeta, SurahData, Ayah, Reciter } from '../types/quran'
+import type { SurahMeta, SurahData, Ayah, Reciter, PageData, PageAyah } from '../types/quran'
 
 export const RECITERS: Reciter[] = [
   {
@@ -49,6 +49,111 @@ export function cleanAyahText(surahNumber: number, ayahNumberInSurah: number, te
     return text.replace(BISMILLAH_PREFIX_REGEX, '').trim()
   }
   return text
+}
+
+// Starting page (1..604) for all 114 Surahs in King Fahd Madani Mushaf
+export const SURAH_START_PAGES: number[] = [
+  1, 2, 50, 77, 106, 128, 151, 177, 187, 208, 221, 235, 249, 255, 262, 267, 282, 293, 305, 312,
+  322, 332, 342, 350, 359, 367, 377, 385, 396, 404, 411, 415, 418, 428, 434, 440, 446, 453, 458, 467,
+  477, 483, 489, 496, 499, 502, 507, 511, 515, 518, 520, 523, 526, 528, 531, 534, 537, 542, 545, 549,
+  551, 553, 554, 556, 558, 560, 562, 564, 566, 568, 570, 572, 574, 575, 577, 578, 580, 582, 583, 585,
+  586, 587, 587, 589, 590, 591, 591, 592, 593, 594, 595, 595, 596, 596, 597, 597, 598, 598, 599, 599,
+  600, 600, 601, 601, 601, 602, 602, 602, 603, 603, 603, 604, 604, 604,
+]
+
+export function getPageForSurah(surahNumber: number): number {
+  if (surahNumber < 1 || surahNumber > 114) return 1
+  return SURAH_START_PAGES[surahNumber - 1] || 1
+}
+
+export function getSurahForPage(pageNumber: number): number {
+  if (pageNumber < 1) return 1
+  if (pageNumber > 604) return 114
+  for (let i = SURAH_START_PAGES.length - 1; i >= 0; i--) {
+    if (pageNumber >= SURAH_START_PAGES[i]) {
+      return i + 1
+    }
+  }
+  return 1
+}
+
+// In-memory cache for Quran pages
+const pageCache = new Map<number, PageData>()
+
+export async function fetchPage(pageNumber: number): Promise<PageData> {
+  const pageNum = Math.max(1, Math.min(604, pageNumber))
+
+  // 1. Check in-memory cache
+  if (pageCache.has(pageNum)) {
+    return pageCache.get(pageNum)!
+  }
+
+  // 2. Check localStorage cache
+  const storageKey = `quran_page_${pageNum}`
+  try {
+    const local = localStorage.getItem(storageKey)
+    if (local) {
+      const parsed: PageData = JSON.parse(local)
+      if (parsed.ayahs && parsed.ayahs.length > 0) {
+        pageCache.set(pageNum, parsed)
+        return parsed
+      }
+    }
+  } catch (e) {
+    console.warn('LocalStorage read error for page:', e)
+  }
+
+  // 3. Fetch from API
+  const url = `https://api.alquran.cloud/v1/page/${pageNum}/quran-uthmani`
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`Failed to load page ${pageNum}`)
+  }
+  const json = await res.json()
+  const rawAyahs = json.data?.ayahs || []
+
+  const surahMap = new Map<number, string>()
+  const ayahs: PageAyah[] = rawAyahs.map((a: any) => {
+    const sNum = a.surah.number
+    const sName = a.surah.name
+    surahMap.set(sNum, sName)
+    const isFirst = a.numberInSurah === 1
+
+    return {
+      number: a.number,
+      numberInSurah: a.numberInSurah,
+      text: cleanAyahText(sNum, a.numberInSurah, a.text),
+      surahNumber: sNum,
+      surahName: sName,
+      surahEnglishName: a.surah.englishName,
+      juz: a.juz,
+      page: a.page,
+      hizbQuarter: a.hizbQuarter,
+      isFirstAyahOfSurah: isFirst,
+    }
+  })
+
+  const surahs = Array.from(surahMap.entries()).map(([num, name]) => ({
+    number: num,
+    name,
+  }))
+
+  const result: PageData = {
+    pageNumber: pageNum,
+    juzNumber: ayahs[0]?.juz || 1,
+    hizbQuarter: ayahs[0]?.hizbQuarter,
+    surahs,
+    ayahs,
+  }
+
+  pageCache.set(pageNum, result)
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(result))
+  } catch (e) {
+    console.warn('LocalStorage write error for page:', e)
+  }
+
+  return result
 }
 
 // In-memory cache for surahs

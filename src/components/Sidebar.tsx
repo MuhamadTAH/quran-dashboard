@@ -133,6 +133,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     bookmarks,
     notes,
     currentSurahNumber,
+    currentPageNumber,
+    goToPage,
     toggleDarkMode,
     isDarkMode,
   } = useQuran()
@@ -425,31 +427,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Reading mode */}
         <Group label="طريقة القراءة" icon={<AlignJustify className="w-3.5 h-3.5 text-amber-500" />}>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setReadingMode('mushaf')}
-              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
-                readingMode === 'mushaf'
-                  ? 'bg-amber-500 text-stone-950'
-                  : 'bg-current/5 opacity-70 hover:opacity-100'
-              }`}
-            >
-              📖 متصل
-            </button>
+          <div className="grid grid-cols-3 gap-1">
             <button
               onClick={() => setReadingMode('verse')}
-              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all text-center ${
                 readingMode === 'verse'
-                  ? 'bg-amber-500 text-stone-950'
+                  ? 'bg-amber-500 text-stone-950 shadow-sm'
                   : 'bg-current/5 opacity-70 hover:opacity-100'
               }`}
+              title="قراءة آية بآية مع بطاقات التفاسير"
             >
-              📋 آية بآية
+              آية بآية
+            </button>
+            <button
+              onClick={() => setReadingMode('page')}
+              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all text-center ${
+                readingMode === 'page'
+                  ? 'bg-amber-500 text-stone-950 shadow-sm'
+                  : 'bg-current/5 opacity-70 hover:opacity-100'
+              }`}
+              title="قراءة صفحة بصفحة مطابقة للمصحف الشريف"
+            >
+              صفحة بصفحة
+            </button>
+            <button
+              onClick={() => setReadingMode('scroll_pages')}
+              className={`py-1.5 px-1 rounded-lg text-[10px] font-bold transition-all text-center ${
+                readingMode === 'scroll_pages'
+                  ? 'bg-amber-500 text-stone-950 shadow-sm'
+                  : 'bg-current/5 opacity-70 hover:opacity-100'
+              }`}
+              title="تصفح متتابع وسلس (تحميل نافذة 5 صفحات فقط)"
+            >
+              تتابع (5 ص)
             </button>
           </div>
 
+          {/* Tafsir strictly in verse-by-verse mode */}
           {readingMode === 'verse' && (
-            <div className="space-y-1 pt-1 border-t border-current/10">
+            <div className="space-y-1.5 pt-1.5 border-t border-current/10">
+              <span className="text-[11px] opacity-60">التفسير الميسر</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setShowTafseer(false)}
+                  className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                    !showTafseer
+                      ? 'bg-amber-500 text-stone-950 font-bold'
+                      : 'bg-current/5 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  بدون تفسير
+                </button>
+                <button
+                  onClick={() => setShowTafseer(true)}
+                  className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                    showTafseer
+                      ? 'bg-emerald-600 text-white font-bold'
+                      : 'bg-current/5 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  مع التفسير
+                </button>
+              </div>
               <button
                 onClick={() => setShowTranslation(!showTranslation)}
                 className={`w-full px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all text-right ${
@@ -460,16 +499,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 {showTranslation ? '✓' : '○'} الترجمة الإنجليزية
               </button>
-              <button
-                onClick={() => setShowTafseer(!showTafseer)}
-                className={`w-full px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all text-right ${
-                  showTafseer
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
-                    : 'border-current/15 opacity-60 hover:opacity-100'
-                }`}
-              >
-                {showTafseer ? '✓' : '○'} التفسير الميسر
-              </button>
+            </div>
+          )}
+
+          {/* Page navigation when in page or scroll_pages mode */}
+          {(readingMode === 'page' || readingMode === 'scroll_pages') && (
+            <div className="space-y-1.5 pt-1.5 border-t border-current/10">
+              <div className="flex items-center justify-between text-[11px] opacity-75">
+                <span>رقم الصفحة</span>
+                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                  {currentPageNumber} / 604
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => goToPage(Math.max(1, currentPageNumber - 1))}
+                  disabled={currentPageNumber <= 1}
+                  className="px-2 py-1 rounded bg-current/5 hover:bg-current/10 disabled:opacity-30 text-[10px] font-bold"
+                  title="الصفحة السابقة"
+                >
+                  السابقة
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  max="604"
+                  value={currentPageNumber}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    if (!isNaN(val) && val >= 1 && val <= 604) goToPage(val)
+                  }}
+                  className="flex-1 w-12 text-center text-xs py-1 rounded bg-current/5 border border-current/10 font-mono font-bold"
+                />
+                <button
+                  onClick={() => goToPage(Math.min(604, currentPageNumber + 1))}
+                  disabled={currentPageNumber >= 604}
+                  className="px-2 py-1 rounded bg-current/5 hover:bg-current/10 disabled:opacity-30 text-[10px] font-bold"
+                  title="الصفحة التالية"
+                >
+                  التالية
+                </button>
+              </div>
             </div>
           )}
         </Group>
