@@ -20,6 +20,11 @@ import {
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
 import { RECITERS } from '../services/quranService'
+import {
+  fetchRecordingsFromCloud,
+  uploadRecordingToCloud,
+  deleteRecordingFromCloud,
+} from '../services/apiService'
 
 export interface RecordingTake {
   id: string
@@ -27,10 +32,11 @@ export interface RecordingTake {
   surahName: string
   ayahNumber: number
   audioUrl: string
-  blob: Blob
+  blob?: Blob
   duration: number
   createdAt: number
   title?: string
+  isCloudSynced?: boolean
 }
 
 interface RecordingSidePanelProps {
@@ -127,6 +133,37 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
       playbackAudioRef.current.loop = isLooping
     }
   }, [playbackRate, isLooping])
+
+  const [isUploadingCloud, setIsUploadingCloud] = useState<boolean>(false)
+
+  // Fetch recordings saved on Railway cloud storage
+  useEffect(() => {
+    let active = true
+    fetchRecordingsFromCloud().then((cloudTakes) => {
+      if (active && cloudTakes && cloudTakes.length > 0) {
+        setTakes((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id))
+          const newTakes: RecordingTake[] = cloudTakes
+            .filter((ct) => !existingIds.has(ct.id))
+            .map((ct) => ({
+              id: ct.id,
+              surahNumber: ct.surahNumber,
+              surahName: ct.surahName,
+              ayahNumber: ct.ayahNumber,
+              audioUrl: ct.audioUrl,
+              duration: ct.duration,
+              createdAt: ct.createdAt,
+              title: ct.title,
+              isCloudSynced: true,
+            }))
+          return [...prev, ...newTakes]
+        })
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [isOpen])
 
   // Clean up recording stream on unmount
   useEffect(() => {
@@ -233,9 +270,10 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
         })
 
         if (recordedBlob.size > 0) {
+          const tempId = `take_${Date.now()}`
           const url = URL.createObjectURL(recordedBlob)
           const newTake: RecordingTake = {
-            id: `take_${Date.now()}`,
+            id: tempId,
             surahNumber: currentSurahNumber,
             surahName: currentSurahData?.name || `سورة ${currentSurahNumber}`,
             ayahNumber: playingAyahNumber || 1,
@@ -243,6 +281,7 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
             blob: recordedBlob,
             duration: recordingSeconds,
             createdAt: Date.now(),
+            isCloudSynced: false,
           }
 
           setCurrentTake(newTake)
@@ -254,6 +293,45 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
             playbackAudioRef.current.src = url
             playbackAudioRef.current.load()
           }
+
+          // Upload to Railway cloud storage
+          setIsUploadingCloud(true)
+          uploadRecordingToCloud(recordedBlob, {
+            surahNumber: newTake.surahNumber,
+            surahName: newTake.surahName,
+            ayahNumber: newTake.ayahNumber,
+            duration: newTake.duration,
+          })
+            .then((cloudTake) => {
+              setIsUploadingCloud(false)
+              if (cloudTake) {
+                setTakes((prev) =>
+                  prev.map((t) =>
+                    t.id === tempId
+                      ? {
+                          ...t,
+                          id: cloudTake.id,
+                          audioUrl: cloudTake.audioUrl,
+                          isCloudSynced: true,
+                        }
+                      : t
+                  )
+                )
+                setCurrentTake((prev) =>
+                  prev && prev.id === tempId
+                    ? {
+                        ...prev,
+                        id: cloudTake.id,
+                        audioUrl: cloudTake.audioUrl,
+                        isCloudSynced: true,
+                      }
+                    : prev
+                )
+              }
+            })
+            .catch(() => {
+              setIsUploadingCloud(false)
+            })
         }
 
         // Stop stream tracks
@@ -362,6 +440,7 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
 
   const deleteTake = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
+    deleteRecordingFromCloud(id).catch(() => {})
     setTakes((prev) => prev.filter((t) => t.id !== id))
     if (currentTake?.id === id) {
       if (playbackAudioRef.current) playbackAudioRef.current.pause()
@@ -713,8 +792,15 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
           {takes.length > 0 && (
             <div className="space-y-2 pt-2 border-t border-current/10">
               <div className="flex items-center justify-between text-xs font-bold opacity-80">
-                <span>سجل التسجيلات ({takes.length})</span>
-                <span className="text-[10px] opacity-60">محاولاتك في هذه الجلسة</span>
+                <span className="flex items-center gap-1.5">
+                  <span>سجل التلاوات المسجلة ({takes.length})</span>
+                  {isUploadingCloud && (
+                    <span className="text-[10px] text-amber-500 animate-pulse font-normal">
+                      (جاري الرفع سحابياً...)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] opacity-60">متزامنة سحابياً ☁️</span>
               </div>
 
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
@@ -741,8 +827,13 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
                           <Mic className="w-3.5 h-3.5" />
                         </div>
                         <div className="truncate">
-                          <p className="truncate font-semibold">
-                            {t.surahName} — آية {t.ayahNumber}
+                          <p className="truncate font-semibold flex items-center gap-1.5">
+                            <span>{t.surahName} — آية {t.ayahNumber}</span>
+                            {t.isCloudSynced && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono font-normal" title="محفوظ في تخزين Railway ومتاح على هاتفك">
+                                ☁️ سحابي
+                              </span>
+                            )}
                           </p>
                           <p className="text-[10px] opacity-60 font-mono">
                             {formatTimer(t.duration)} • المحاولة #{takes.length - idx}

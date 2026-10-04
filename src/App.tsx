@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { QuranProvider, useQuran } from './context/QuranContext'
 import { Sidebar } from './components/Sidebar'
 import { DashboardHome } from './components/DashboardHome'
@@ -9,6 +9,8 @@ import { SurahSelectorModal } from './components/SurahSelectorModal'
 import { SettingsModal } from './components/SettingsModal'
 import { AudioPlayerBar } from './components/AudioPlayerBar'
 import { RecordingSidePanel } from './components/RecordingSidePanel'
+import { LoginModal } from './components/LoginModal'
+import { checkAuthStatus } from './services/apiService'
 import { THEME_CONFIGS } from './utils/themeStyles'
 import { Mic } from 'lucide-react'
 
@@ -18,7 +20,16 @@ const MainContent: React.FC = () => {
   const [showNotesSidebar, setShowNotesSidebar] = useState(false)
   const [isRecordingPanelOpen, setIsRecordingPanelOpen] = useState(false)
   const [isRecordingPanelPinned, setIsRecordingPanelPinned] = useState(false)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const themeConfig = THEME_CONFIGS[theme]
+
+  useEffect(() => {
+    checkAuthStatus().then((status) => {
+      if (status.isPasswordRequired && !status.isAuthenticated) {
+        setIsAuthModalOpen(true)
+      }
+    })
+  }, [])
 
   return (
     <div
@@ -83,6 +94,7 @@ const MainContent: React.FC = () => {
       <SurahSelectorModal />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <AudioPlayerBar />
+      <LoginModal isOpen={isAuthModalOpen} onSuccess={() => setIsAuthModalOpen(false)} />
     </div>
   )
 }
