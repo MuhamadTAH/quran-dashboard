@@ -12,9 +12,11 @@ import type {
 import {
   RECITERS,
   fetchSurah,
+  fetchPage,
   getAyahAudioUrl,
   getPageForSurah,
   getSurahForPage,
+  getSurahList,
 } from '../services/quranService'
 
 // ─── Note Types ─────────────────────────────────────────────────────────────
@@ -23,6 +25,7 @@ export interface QuranNote {
   surahNumber: number
   ayahNumber: number
   wordIndex?: number   // undefined = ayah-level note, number = word-level note
+  selectedText?: string // phrase or part of ayah for this note
   text: string
   timestamp: number
 }
@@ -76,7 +79,13 @@ interface QuranContextType {
 
   // Notes / Annotations
   notes: QuranNote[]
-  addNote: (surahNumber: number, ayahNumber: number, text: string, wordIndex?: number) => void
+  addNote: (
+    surahNumber: number,
+    ayahNumber: number,
+    text: string,
+    wordIndex?: number,
+    selectedText?: string
+  ) => void
   removeNote: (id: string) => void
   getAyahNotes: (surahNumber: number, ayahNumber: number) => QuranNote[]
   getWordNote: (surahNumber: number, ayahNumber: number, wordIndex: number) => QuranNote | undefined
@@ -111,8 +120,9 @@ interface QuranContextType {
   setReciter: (reciter: Reciter) => void
   isPlaying: boolean
   playingAyahNumber: number | null
-  playAyah: (ayahNumberInSurah: number) => void
+  playAyah: (ayahNumberInSurah: number, surahNumber?: number) => void
   playWholeSurah: () => void
+  playPage: (pageNumber: number) => Promise<void>
   pauseAudio: () => void
   resumeAudio: () => void
   toggleAudio: () => void
@@ -239,12 +249,19 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('quran_notes', JSON.stringify(updated))
   }
 
-  const addNote = (surahNumber: number, ayahNumber: number, text: string, wordIndex?: number) => {
+  const addNote = (
+    surahNumber: number,
+    ayahNumber: number,
+    text: string,
+    wordIndex?: number,
+    selectedText?: string
+  ) => {
     const note: QuranNote = {
-      id: `note_${surahNumber}_${ayahNumber}_${wordIndex ?? 'a'}_${Date.now()}`,
+      id: `note_${surahNumber}_${ayahNumber}_${wordIndex ?? 'part'}_${Date.now()}`,
       surahNumber,
       ayahNumber,
       wordIndex,
+      selectedText,
       text,
       timestamp: Date.now(),
     }
@@ -469,10 +486,12 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentSurahData(data)
       localStorage.setItem('quran_current_surah', surahNumber.toString())
 
-      // Sync page number with surah start page
-      const surahPage = getPageForSurah(surahNumber)
-      setCurrentPageNumberState(surahPage)
-      localStorage.setItem('quran_current_page', surahPage.toString())
+      // Sync page number with surah start page only in verse mode
+      if (readingMode === 'verse') {
+        const surahPage = getPageForSurah(surahNumber)
+        setCurrentPageNumberState(surahPage)
+        localStorage.setItem('quran_current_page', surahPage.toString())
+      }
 
       // Preserve existing ayahNumber if reloading same surah without targetAyah
       setLastRead((prevLastRead) => {
@@ -502,21 +521,26 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }
 
-  // Word-level audio (tries authentic Quranic audio first, falls back to Web Speech API)
+  // Word-level audio (tries authentic Quranic audio first, falls back to reciter ayah audio)
   const wordAudioRef = useRef<HTMLAudioElement | null>(null)
-  const fallbackSpeak = (word: string) => {
-    if (!('speechSynthesis' in window)) return
-    window.speechSynthesis.cancel()
-    const utt = new SpeechSynthesisUtterance(word)
-    utt.lang = 'ar-SA'
-    utt.rate = 0.8
-    window.speechSynthesis.speak(utt)
-  }
 
-  const speakWord = (word: string, surahNumber?: number, ayahNumber?: number, wordIndex?: number) => {
-    if (surahNumber && ayahNumber && wordIndex && wordIndex > 0) {
-      const s = String(surahNumber).padStart(3, '0')
-      const a = String(ayahNumber).padStart(3, '0')
+  // Audio state refs so event listeners always access fresh state without recreating the Audio object
+  const currentSurahDataRef = useRef(currentSurahData)
+  currentSurahDataRef.current = currentSurahData
+  const currentSurahNumberRef = useRef(currentSurahNumber)
+  currentSurahNumberRef.current = currentSurahNumber
+  const playingAyahNumberRef = useRef(playingAyahNumber)
+  playingAyahNumberRef.current = playingAyahNumber
+  const reciterRef = useRef(reciter)
+  reciterRef.current = reciter
+
+  const speakWord = (_word: string, surahNumber?: number, ayahNumber?: number, wordIndex?: number) => {
+    const sNum = surahNumber || currentSurahNumberRef.current || 1
+    const aNum = ayahNumber || 1
+
+    if (wordIndex && wordIndex > 0) {
+      const s = String(sNum).padStart(3, '0')
+      const a = String(aNum).padStart(3, '0')
       const w = String(wordIndex).padStart(3, '0')
       const url = `https://audio.qurancdn.com/wbw/${s}_${a}_${w}.mp3`
 
@@ -527,29 +551,39 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.pause()
       audio.src = url
       audio.onerror = () => {
-        fallbackSpeak(word)
+        playAyah(aNum, sNum)
       }
       audio.play().catch(() => {
-        fallbackSpeak(word)
+        playAyah(aNum, sNum)
       })
       return
     }
-    fallbackSpeak(word)
+
+    // Direct fallback to playing the Ayah with the chosen reciter
+    playAyah(aNum, sNum)
   }
 
-  // Audio setup
+  // Audio setup - mounted ONCE on component creation so React re-renders NEVER cancel active audio
   useEffect(() => {
     const audio = new Audio()
     audioRef.current = audio
 
     const handleEnded = () => {
-      if (currentSurahData && playingAyahNumber !== null) {
-        if (playingAyahNumber < currentSurahData.numberOfAyahs) {
-          playAyah(playingAyahNumber + 1)
+      const sData = currentSurahDataRef.current
+      const currentAyah = playingAyahNumberRef.current
+      const sNum = currentSurahNumberRef.current
+      if (currentAyah !== null) {
+        const surahMeta = getSurahList().find((s) => s.number === sNum)
+        const totalAyahs = surahMeta?.numberOfAyahs || sData?.numberOfAyahs || 1
+        if (currentAyah < totalAyahs) {
+          playAyah(currentAyah + 1, sNum)
         } else {
           setIsPlaying(false)
           setPlayingAyahNumber(null)
         }
+      } else {
+        setIsPlaying(false)
+        setPlayingAyahNumber(null)
       }
     }
 
@@ -561,8 +595,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setAudioDuration(audio.duration)
     }
 
-    const handleError = () => {
-      console.warn('Audio playback error')
+    const handleError = (e: any) => {
+      console.warn('Audio playback error', e)
       setIsPlaying(false)
     }
 
@@ -578,21 +612,42 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
       audio.removeEventListener('error', handleError)
     }
-  }, [currentSurahData, playingAyahNumber, reciter])
+  }, [])
 
-  const playAyah = (ayahNumberInSurah: number) => {
-    if (!audioRef.current || !currentSurahData) return
+  const playAyah = (ayahNumberInSurah: number, surahNumber?: number) => {
+    if (!audioRef.current) return
 
-    const url = getAyahAudioUrl(reciter.folder, currentSurahData.number, ayahNumberInSurah)
+    const targetSurahNum =
+      surahNumber || currentSurahNumberRef.current || currentSurahDataRef.current?.number || 1
+    const currentReciter = reciterRef.current
+
+    currentSurahNumberRef.current = targetSurahNum
+    playingAyahNumberRef.current = ayahNumberInSurah
+    setPlayingAyahNumber(ayahNumberInSurah)
+    setIsPlaying(true)
+
+    const url = getAyahAudioUrl(currentReciter.folder, targetSurahNum, ayahNumberInSurah)
     audioRef.current.src = url
     audioRef.current
       .play()
       .then(() => {
         setIsPlaying(true)
-        setPlayingAyahNumber(ayahNumberInSurah)
-        saveLastRead(currentSurahData.number, currentSurahData.name, ayahNumberInSurah)
+        if (targetSurahNum !== currentSurahNumber) {
+          setCurrentSurahNumber(targetSurahNum)
+          if (readingMode === 'verse') {
+            loadSurah(targetSurahNum, ayahNumberInSurah)
+          }
+        } else {
+          saveLastRead(
+            targetSurahNum,
+            currentSurahDataRef.current?.name || `سورة ${targetSurahNum}`,
+            ayahNumberInSurah
+          )
+        }
 
-        const el = document.getElementById(`ayah-${ayahNumberInSurah}`)
+        const el =
+          document.getElementById(`ayah-${targetSurahNum}-${ayahNumberInSurah}`) ||
+          document.getElementById(`ayah-${ayahNumberInSurah}`)
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
@@ -604,7 +659,19 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }
 
   const playWholeSurah = () => {
-    playAyah(1)
+    playAyah(1, currentSurahNumberRef.current)
+  }
+
+  const playPage = async (pageNumber: number) => {
+    try {
+      const pageData = await fetchPage(pageNumber)
+      if (pageData && pageData.ayahs && pageData.ayahs.length > 0) {
+        const first = pageData.ayahs[0]
+        playAyah(first.numberInSurah, first.surahNumber)
+      }
+    } catch (e) {
+      console.error('Failed to play page audio:', e)
+    }
   }
 
   const pauseAudio = () => {
@@ -761,6 +828,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         playingAyahNumber,
         playAyah,
         playWholeSurah,
+        playPage,
         pauseAudio,
         resumeAudio,
         toggleAudio,

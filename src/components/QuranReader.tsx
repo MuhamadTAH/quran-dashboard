@@ -47,7 +47,7 @@ const NoteDialog: React.FC<{
   onDelete?: () => void
   onClose: () => void
   themeConfig: ThemeColors
-}> = ({ ayahNumber, wordIndex, wordText, existingNote, onSave, onDelete, onClose, themeConfig }) => {
+}> = ({ ayahNumber, wordText, existingNote, onSave, onDelete, onClose, themeConfig }) => {
   const [text, setText] = useState(existingNote || '')
   return (
     <div
@@ -62,9 +62,9 @@ const NoteDialog: React.FC<{
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-sm">
             <StickyNote className="w-4 h-4 text-amber-500" />
-            <span>
-              {wordIndex !== undefined
-                ? `ملاحظة على: ${wordText}`
+            <span className="truncate">
+              {wordText
+                ? `ملاحظة على الجزء المختار`
                 : `ملاحظة — الآية ${ayahNumber}`}
             </span>
           </div>
@@ -72,6 +72,11 @@ const NoteDialog: React.FC<{
             <X className="w-4 h-4" />
           </button>
         </div>
+        {wordText && (
+          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-quran-amiri text-amber-900 dark:text-amber-200 leading-relaxed text-right">
+            « {wordText} »
+          </div>
+        )}
         <textarea
           autoFocus
           value={text}
@@ -225,6 +230,7 @@ const MadaniPageView: React.FC<{
     ayahText?: string
   ) => void
   onAyahClick: (ayahNum: number, surahNum: number, surahName: string, ayahText: string) => void
+  onPlayPage?: (pageNumber: number) => void
 }> = ({
   page,
   fontSize,
@@ -241,6 +247,7 @@ const MadaniPageView: React.FC<{
   getWordNote,
   onWordClick,
   onAyahClick,
+  onPlayPage,
 }) => {
   const getFontFamilyClass = (family: FontFamily) => {
     switch (family) {
@@ -281,9 +288,21 @@ const MadaniPageView: React.FC<{
         <span className="font-quran-amiri font-bold text-base sm:text-xl text-amber-800 dark:text-amber-300">
           سورة {page.surahs.map((s) => s.name).join(' و ')}
         </span>
-        <span className="text-amber-700 dark:text-amber-400 font-mono">
-          صـ {toArabicDigits(page.pageNumber)}
-        </span>
+        <div className="flex items-center gap-2.5">
+          {onPlayPage && (
+            <button
+              onClick={() => onPlayPage(page.pageNumber)}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/40 text-xs font-bold transition-all shadow-sm active:scale-95"
+              title="تشغيل تلاوة الصفحة بصوت القارئ المختار"
+            >
+              <Headphones className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>استمع للصفحة</span>
+            </button>
+          )}
+          <span className="text-amber-700 dark:text-amber-400 font-mono">
+            صـ {toArabicDigits(page.pageNumber)}
+          </span>
+        </div>
       </div>
 
       {/* ── Page Quranic Content ── */}
@@ -294,7 +313,7 @@ const MadaniPageView: React.FC<{
         {page.ayahs.map((ayah, aIdx) => {
           const isFirstInSurah = ayah.isFirstAyahOfSurah || ayah.numberInSurah === 1
           const cleanText = cleanAyahText(ayah.surahNumber, ayah.numberInSurah, ayah.text)
-          const tokens = highlightRareWords ? tokenizeAyah(cleanText, rareWordThreshold) : null
+          const tokens = tokenizeAyah(cleanText, rareWordThreshold)
           const isSelected = selectedAyahs.has(ayah.numberInSurah)
           const ayahNotes = getAyahNotes(ayah.surahNumber, ayah.numberInSurah)
 
@@ -325,88 +344,83 @@ const MadaniPageView: React.FC<{
               {/* Ayah inline span */}
               <span
                 id={`ayah-${ayah.surahNumber}-${ayah.numberInSurah}`}
+                data-ayah-number={ayah.numberInSurah}
+                data-surah-number={ayah.surahNumber}
                 className={`transition-colors duration-150 inline rounded-lg px-0.5 ${
                   isSelected ? 'bg-blue-400/20 ring-1 ring-blue-400/50' : ''
                 }`}
               >
-                {tokens ? (
-                  tokens.map((tok, tIdx) => {
-                    if (!tok.isWord) return <span key={tIdx}>{tok.text}</span>
-                    const wordNote = getWordNote(ayah.surahNumber, ayah.numberInSurah, tIdx)
-                    if (tok.isRare) {
-                      return (
-                        <span
-                          key={tIdx}
-                          onClick={() =>
-                            onWordClick(
-                              tok.cleaned,
-                              ayah.numberInSurah,
-                              tIdx,
-                              true,
-                              tok.frequency,
-                              tok.wordPosition,
-                              ayah.surahNumber,
-                              cleanText
-                            )
-                          }
-                          className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
-                            isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
-                          } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                          title={
-                            isAiAskMode
-                              ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
-                              : isAudioClickMode
-                              ? `سماع: ${tok.cleaned}`
-                              : isSelectionMode
-                              ? 'ملاحظة'
-                              : `نادرة — ${tok.frequency} مرة`
-                          }
-                        >
-                          {tok.text}
-                          {wordNote && (
-                            <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
-                          )}
-                        </span>
-                      )
-                    }
+                {tokens.map((tok, tIdx) => {
+                  if (!tok.isWord) return <span key={tIdx}>{tok.text}</span>
+                  const wordNote = getWordNote(ayah.surahNumber, ayah.numberInSurah, tIdx)
+                  if (tok.isRare && highlightRareWords) {
                     return (
                       <span
                         key={tIdx}
                         onClick={() =>
                           onWordClick(
-                            tok.cleaned || tok.text,
+                            tok.cleaned,
                             ayah.numberInSurah,
                             tIdx,
-                            false,
-                            undefined,
+                            true,
+                            tok.frequency,
                             tok.wordPosition,
                             ayah.surahNumber,
                             cleanText
                           )
                         }
-                        className={`cursor-pointer rounded transition-colors ${
+                        className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
+                          isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
+                        } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
+                        title={
                           isAiAskMode
-                            ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
-                            : 'hover:bg-amber-500/10'
-                        } ${wordNote ? 'ring-1 ring-violet-300 rounded px-0.5' : ''}`}
-                        title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
+                            ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                            : isAudioClickMode
+                            ? `سماع: ${tok.cleaned}`
+                            : isSelectionMode
+                            ? 'ملاحظة على هذه الكلمة'
+                            : `نادرة — ${tok.frequency} مرة`
+                        }
                       >
                         {tok.text}
+                        {wordNote && (
+                          <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
+                        )}
                       </span>
                     )
-                  })
-                ) : (
-                  <span
-                    onClick={() =>
-                      onWordClick(cleanText, ayah.numberInSurah, 0, false, undefined, undefined, ayah.surahNumber, cleanText)
-                    }
-                    className={`cursor-pointer rounded transition-colors ${
-                      isAiAskMode ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5' : 'hover:bg-amber-500/10'
-                    }`}
-                  >
-                    {cleanText}
-                  </span>
-                )}
+                  }
+                  return (
+                    <span
+                      key={tIdx}
+                      onClick={() =>
+                        onWordClick(
+                          tok.cleaned || tok.text,
+                          ayah.numberInSurah,
+                          tIdx,
+                          false,
+                          undefined,
+                          tok.wordPosition,
+                          ayah.surahNumber,
+                          cleanText
+                        )
+                      }
+                      className={`cursor-pointer rounded transition-colors ${
+                        isAiAskMode
+                          ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                          : 'hover:bg-amber-500/10'
+                      } ${wordNote ? 'ring-1 ring-violet-300 rounded px-0.5' : ''}`}
+                      title={
+                        isAiAskMode
+                          ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                          : isAudioClickMode
+                          ? `سماع: ${tok.cleaned || tok.text}`
+                          : undefined
+                      }
+                    >
+                      {tok.text}
+                    </span>
+                  )
+                })}
 
                 {/* Ayah End Ornament */}
                 <span
@@ -480,6 +494,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     isPlaying,
     playAyah,
     playWholeSurah,
+    playPage,
     pauseAudio,
     reciter,
     speakWord,
@@ -498,6 +513,54 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     surahNumber?: number
   } | null>(null)
   const [selectedAyahs, setSelectedAyahs] = useState<Set<number>>(new Set())
+
+  // Floating text selection state
+  const [selectedTextPart, setSelectedTextPart] = useState<{
+    text: string
+    ayahNumber?: number
+    surahNumber?: number
+    rect?: { top: number; left: number }
+  } | null>(null)
+
+  const handleMouseUp = () => {
+    setTimeout(() => {
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) return
+      const text = sel.toString().trim()
+      if (text.length > 0) {
+        const anchorNode = sel.anchorNode
+        const el = anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement
+        const ayahSpan = el?.closest('[id^="ayah-"]')
+        let aNum = 1
+        let sNum = currentSurahNumber
+        if (ayahSpan && ayahSpan.id) {
+          const parts = ayahSpan.id.replace('ayah-', '').split('-').map(Number)
+          if (parts.length === 2) {
+            sNum = parts[0]
+            aNum = parts[1]
+          } else if (parts.length === 1) {
+            aNum = parts[0]
+          }
+        }
+        try {
+          const range = sel.getRangeAt(0)
+          const rect = range.getBoundingClientRect()
+          setSelectedTextPart({
+            text,
+            ayahNumber: aNum,
+            surahNumber: sNum,
+            rect: { top: rect.top, left: rect.left + rect.width / 2 },
+          })
+        } catch {
+          setSelectedTextPart({
+            text,
+            ayahNumber: aNum,
+            surahNumber: sNum,
+          })
+        }
+      }
+    }, 20)
+  }
 
   // Ayah action popup
   const [ayahPopup, setAyahPopup] = useState<{
@@ -709,15 +772,19 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         ? singlePageData?.surahs.find((s) => s.number === surahNum)?.name || `سورة ${surahNum}`
         : currentSurahData?.name || ''
 
+    const activeSelection = window.getSelection()?.toString().trim()
+    const targetText = activeSelection && activeSelection.length > 1 ? activeSelection : word
+    const targetWordIndex = activeSelection && activeSelection.length > 1 ? undefined : wordIdx
+
     if (isAiAskMode) {
       const ayahText =
         fullAyahText ||
         currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)?.text ||
-        word
+        targetText
       setAiModalTarget({
         ayahNumber: ayahNum,
         ayahText,
-        wordText: word,
+        wordText: targetText,
         surahNumber: sNum,
         surahName: sName,
       })
@@ -725,15 +792,19 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     }
 
     if (isAudioClickMode) {
-      speakWord(word, sNum, ayahNum, wordPosition)
+      if (activeSelection && activeSelection.length > 1) {
+        playAyah(ayahNum, sNum)
+      } else {
+        speakWord(word, sNum, ayahNum, wordPosition)
+      }
       return
     }
 
     if (isSelectionMode) {
       setNoteTarget({
         ayahNumber: ayahNum,
-        wordIndex: wordIdx,
-        wordText: word,
+        wordIndex: targetWordIndex,
+        wordText: targetText,
         surahNumber: sNum,
       })
       return
@@ -768,11 +839,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     }
 
     if (isAudioClickMode) {
-      if (sNum === currentSurahNumber) {
-        playAyah(ayahNum)
-      } else {
-        loadSurah(sNum, ayahNum)
-      }
+      playAyah(ayahNum, sNum)
       return
     }
 
@@ -817,7 +884,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   }
 
   return (
-    <div className="pb-28 space-y-5">
+    <div className="pb-28 space-y-5" onMouseUp={handleMouseUp}>
       {/* ── Active mode hint bar ── */}
       {(isSelectionMode || isAudioClickMode || isAiAskMode) && (
         <div
@@ -896,6 +963,15 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                     className="w-16 text-center font-mono font-bold py-1.5 px-2 rounded-xl bg-current/5 border border-current/15 text-sm"
                   />
                   <span className="opacity-70">من 604</span>
+
+                  <button
+                    onClick={() => playPage(currentPageNumber)}
+                    className="mr-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 border border-amber-500/40 text-xs font-bold transition-all shadow-sm active:scale-95"
+                    title="استمع للصفحة الحالية كاملة"
+                  >
+                    <Headphones className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>استمع للصفحة</span>
+                  </button>
                 </div>
 
                 <button
@@ -944,6 +1020,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   getWordNote={getWordNote}
                   onWordClick={handleWordClick}
                   onAyahClick={handleAyahNumberClick}
+                  onPlayPage={playPage}
                 />
               ) : null}
 
@@ -1037,6 +1114,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         getWordNote={getWordNote}
                         onWordClick={handleWordClick}
                         onAyahClick={handleAyahNumberClick}
+                        onPlayPage={playPage}
                       />
                     </div>
                   ))}
@@ -1143,7 +1221,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   const isPlayingThis = isPlaying && playingAyahNumber === ayah.numberInSurah
                   const isSelectedAyah = selectedAyahs.has(ayah.numberInSurah)
                   const cleanText = cleanAyahText(currentSurahNumber, ayah.numberInSurah, ayah.text)
-                  const tokens = highlightRareWords ? tokenizeAyah(cleanText, rareWordThreshold) : null
+                  const tokens = tokenizeAyah(cleanText, rareWordThreshold)
                   const ayahNotes = getAyahNotes(currentSurahNumber, ayah.numberInSurah)
 
                   return (
@@ -1216,7 +1294,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             <Bot className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => (isPlayingThis ? pauseAudio() : playAyah(ayah.numberInSurah))}
+                            onClick={() => (isPlayingThis ? pauseAudio() : playAyah(ayah.numberInSurah, currentSurahNumber))}
                             className={`p-2 rounded-xl border transition-all ${
                               isPlayingThis
                                 ? 'bg-amber-500 text-stone-950 border-amber-500'
@@ -1284,95 +1362,71 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         style={{ fontSize: `${fontSize}px`, lineHeight: getLineHeight(lineSpacing) }}
                         dir="rtl"
                       >
-                        {tokens ? (
-                          tokens.map((tok, idx) => {
-                            if (!tok.isWord) return <span key={idx}>{tok.text}</span>
-                            const wordNote = getWordNote(currentSurahNumber, ayah.numberInSurah, idx)
-                            if (tok.isRare) {
-                              return (
-                                <span
-                                  key={idx}
-                                  onClick={() =>
-                                    handleWordClick(
-                                      tok.cleaned,
-                                      ayah.numberInSurah,
-                                      idx,
-                                      true,
-                                      tok.frequency,
-                                      tok.wordPosition,
-                                      currentSurahNumber,
-                                      cleanText
-                                    )
-                                  }
-                                  className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
-                                    isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
-                                  } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                                  title={
-                                    isAiAskMode
-                                      ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
-                                      : isAudioClickMode
-                                      ? `سماع: ${tok.cleaned}`
-                                      : isSelectionMode
-                                      ? 'ملاحظة'
-                                      : `نادرة — ${tok.frequency} مرة`
-                                  }
-                                >
-                                  {tok.text}
-                                  {wordNote && (
-                                    <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
-                                  )}
-                                </span>
-                              )
-                            }
+                        {tokens.map((tok, idx) => {
+                          if (!tok.isWord) return <span key={idx}>{tok.text}</span>
+                          const wordNote = getWordNote(currentSurahNumber, ayah.numberInSurah, idx)
+                          if (tok.isRare && highlightRareWords) {
                             return (
                               <span
                                 key={idx}
                                 onClick={() =>
                                   handleWordClick(
-                                    tok.cleaned || tok.text,
+                                    tok.cleaned,
                                     ayah.numberInSurah,
                                     idx,
-                                    false,
-                                    undefined,
+                                    true,
+                                    tok.frequency,
                                     tok.wordPosition,
                                     currentSurahNumber,
                                     cleanText
                                   )
                                 }
-                                className={`cursor-pointer rounded transition-colors ${
+                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
+                                  isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
+                                } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
+                                title={
                                   isAiAskMode
-                                    ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
-                                    : 'hover:bg-amber-500/10'
-                                } ${wordNote ? 'ring-1 ring-violet-300 bg-violet-500/5 px-0.5' : ''}`}
-                                title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
+                                    ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                                    : isAudioClickMode
+                                    ? `سماع: ${tok.cleaned}`
+                                    : isSelectionMode
+                                    ? 'ملاحظة'
+                                    : `نادرة — ${tok.frequency} مرة`
+                                }
                               >
                                 {tok.text}
+                                {wordNote && (
+                                  <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
+                                )}
                               </span>
                             )
-                          })
-                        ) : (
-                          <span
-                            onClick={() =>
-                              handleWordClick(
-                                cleanText,
-                                ayah.numberInSurah,
-                                0,
-                                false,
-                                undefined,
-                                undefined,
-                                currentSurahNumber,
-                                cleanText
-                              )
-                            }
-                            className={`cursor-pointer rounded transition-colors ${
-                              isAiAskMode
-                                ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
-                                : 'hover:bg-amber-500/10'
-                            }`}
-                          >
-                            {cleanText}
-                          </span>
-                        )}
+                          }
+                          return (
+                            <span
+                              key={idx}
+                              onClick={() =>
+                                handleWordClick(
+                                  tok.cleaned || tok.text,
+                                  ayah.numberInSurah,
+                                  idx,
+                                  false,
+                                  undefined,
+                                  tok.wordPosition,
+                                  currentSurahNumber,
+                                  cleanText
+                                )
+                              }
+                              className={`cursor-pointer rounded transition-colors ${
+                                isAiAskMode
+                                  ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                                  : 'hover:bg-amber-500/10'
+                              } ${wordNote ? 'ring-1 ring-violet-300 bg-violet-500/5 px-0.5' : ''}`}
+                              title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
+                            >
+                              {tok.text}
+                            </span>
+                          )
+                        })}
                         <span className={`ayah-number ${themeConfig.ayahMarker}`}>
                           {toArabicDigits(ayah.numberInSurah)}
                         </span>
@@ -1388,7 +1442,14 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                               dir="rtl"
                             >
                               <StickyNote className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
-                              <p className="flex-1 leading-relaxed text-violet-800 dark:text-violet-300">{n.text}</p>
+                              <div className="flex-1 space-y-1">
+                                {n.selectedText && (
+                                  <span className="inline-block text-[11px] font-quran-amiri font-bold text-amber-800 dark:text-amber-200 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-md">
+                                    « {n.selectedText} »
+                                  </span>
+                                )}
+                                <p className="leading-relaxed text-violet-800 dark:text-violet-300">{n.text}</p>
+                              </div>
                               <button
                                 onClick={() => removeNote(n.id)}
                                 className="text-red-400 hover:text-red-600 shrink-0"
@@ -1492,6 +1553,11 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
+                      {n.selectedText && (
+                        <div className="text-[11px] font-quran-amiri font-bold text-amber-800 dark:text-amber-200 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded truncate">
+                          « {n.selectedText} »
+                        </div>
+                      )}
                       <p className="leading-relaxed text-violet-900 dark:text-violet-200">{n.text}</p>
                     </div>
                   ))}
@@ -1609,7 +1675,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             themeConfig={themeConfig}
             onSave={(text) => {
               if (existing) removeNote(existing.id)
-              addNote(targetSurah, noteTarget.ayahNumber, text, noteTarget.wordIndex)
+              addNote(targetSurah, noteTarget.ayahNumber, text, noteTarget.wordIndex, noteTarget.wordText)
             }}
             onDelete={existing ? () => removeNote(existing.id) : undefined}
             onClose={() => setNoteTarget(null)}
@@ -1629,9 +1695,105 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           wordText={aiModalTarget.wordText}
           themeConfig={themeConfig}
           onSaveAsNote={(text) => {
-            addNote(aiModalTarget.surahNumber || currentSurahNumber, aiModalTarget.ayahNumber, text)
+            addNote(
+              aiModalTarget.surahNumber || currentSurahNumber,
+              aiModalTarget.ayahNumber,
+              text,
+              undefined,
+              aiModalTarget.wordText
+            )
           }}
         />
+      )}
+
+      {/* ── FLOATING SELECTION TOOLBAR ── */}
+      {selectedTextPart && (
+        <div
+          style={
+            selectedTextPart.rect
+              ? {
+                  position: 'fixed',
+                  top: `${Math.max(16, selectedTextPart.rect.top - 52)}px`,
+                  left: `${selectedTextPart.rect.left}px`,
+                  transform: 'translateX(-50%)',
+                  zIndex: 60,
+                }
+              : {
+                  position: 'fixed',
+                  bottom: '80px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 60,
+                }
+          }
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl ${themeConfig.bgCard} border-2 border-amber-500/40 shadow-2xl backdrop-blur-md text-xs font-bold animate-in fade-in zoom-in-95 duration-150`}
+          dir="rtl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-1 text-[11px] font-quran-amiri text-amber-800 dark:text-amber-200 border-l border-current/15 pl-2 max-w-[120px] truncate">
+            « {selectedTextPart.text} »
+          </div>
+          <button
+            onClick={() => {
+              setNoteTarget({
+                ayahNumber: selectedTextPart.ayahNumber || 1,
+                wordText: selectedTextPart.text,
+                surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
+              })
+              setSelectedTextPart(null)
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-700 dark:text-violet-300 transition-colors"
+            title="إضافة ملاحظة على الجزء المختار"
+          >
+            <StickyNote className="w-3.5 h-3.5 text-violet-500" />
+            <span>ملاحظة</span>
+          </button>
+          <button
+            onClick={() => {
+              setAiModalTarget({
+                ayahNumber: selectedTextPart.ayahNumber || 1,
+                ayahText: selectedTextPart.text,
+                wordText: selectedTextPart.text,
+                surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
+                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+              })
+              setSelectedTextPart(null)
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 transition-colors"
+            title="اسأل الذكاء الاصطناعي عن هذا الجزء"
+          >
+            <Bot className="w-3.5 h-3.5 text-purple-500" />
+            <span>اسأل AI</span>
+          </button>
+          <button
+            onClick={() => {
+              playAyah(selectedTextPart.ayahNumber || 1, selectedTextPart.surahNumber || currentSurahNumber)
+              setSelectedTextPart(null)
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 transition-colors"
+            title="استمع للآية"
+          >
+            <Headphones className="w-3.5 h-3.5 text-emerald-500" />
+            <span>استماع</span>
+          </button>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(selectedTextPart.text)
+              setSelectedTextPart(null)
+            }}
+            className="p-1 rounded-lg hover:bg-current/10 opacity-70 hover:opacity-100"
+            title="نسخ النص"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setSelectedTextPart(null)}
+            className="p-1 rounded-lg hover:bg-current/10 opacity-60 hover:opacity-100"
+            title="إغلاق"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
     </div>
   )
