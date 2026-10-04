@@ -16,6 +16,7 @@ import {
   Headphones,
   Sparkles,
   Repeat,
+  ChevronLeft,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -42,6 +43,7 @@ export interface RecordingTake {
 interface RecordingSidePanelProps {
   isOpen: boolean
   onClose: () => void
+  onOpen?: () => void
   isPinned: boolean
   onTogglePin: () => void
 }
@@ -51,6 +53,7 @@ const SPEED_PRESETS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
   isOpen,
   onClose,
+  onOpen,
   isPinned,
   onTogglePin,
 }) => {
@@ -473,12 +476,10 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
     playAyah(targetAyah)
   }
 
-  if (!isOpen) return null
-
   return (
     <>
       {/* Semi-transparent backdrop for mobile screens */}
-      {!isPinned && (
+      {isOpen && !isPinned && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-40 lg:hidden animate-in fade-in duration-200"
           onClick={onClose}
@@ -487,7 +488,9 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
 
       {/* ── INDEPENDENT RECORDING SIDE PANEL (Left side of screen) ── */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-80 sm:w-96 flex flex-col border-r ${themeConfig.border} ${themeConfig.bgCard} shadow-2xl z-40 overflow-hidden transition-all duration-300 animate-in slide-in-from-left duration-300`}
+        className={`fixed left-0 top-0 h-screen w-80 sm:w-96 flex flex-col border-r ${themeConfig.border} ${themeConfig.bgCard} shadow-2xl z-40 overflow-hidden transition-transform duration-300 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full pointer-events-none'
+        }`}
         dir="rtl"
       >
         {/* Panel Header */}
@@ -508,6 +511,14 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-xl border border-current/10 hover:bg-current/10 opacity-70 hover:opacity-100 transition-all flex items-center gap-1 text-xs"
+              title="إخفاء اللوحة (يستمر الصوت بالعمل في الخلفية)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span className="text-[10px]">إخفاء</span>
+            </button>
             <button
               onClick={onTogglePin}
               className={`p-1.5 rounded-xl border transition-all ${
@@ -729,6 +740,22 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
                 </button>
               </div>
 
+              {/* Listen & Hide Panel Button ("استمع وأخفِ اللوحة") */}
+              <button
+                onClick={() => {
+                  if (!isPlayingRecorded) {
+                    playRecorded()
+                  }
+                  onClose()
+                }}
+                className="w-full py-2.5 px-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-98 shadow-sm"
+                title="بدء تشغيل تلاوتك وإخفاء لوحة التسجيل لتتمكن من قراءة صفحات المصحف دون أي حجب"
+              >
+                <Headphones className="w-4 h-4" />
+                <span>استمع وأخفِ اللوحة (لقراءة المصحف كاملاً)</span>
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
               {/* ── Speed Adjustment Controls ("just the speed also") ── */}
               <div className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-current/10 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -873,6 +900,74 @@ export const RecordingSidePanel: React.FC<RecordingSidePanelProps> = ({
           💡 يمكنك تسجيل تلاوتك وتكرارها وضبط سرعتها لتحسين نطقك وأحكام التجويد
         </div>
       </aside>
+
+      {/* ── FLOATING MINI PLAYER WIDGET (when side panel is hidden & a take is active or playing) ── */}
+      {!isOpen && (isPlayingRecorded || currentTake) && currentTake && (
+        <div
+          className="fixed left-3 sm:left-5 bottom-5 z-40 flex items-center gap-2.5 p-2.5 pr-3.5 rounded-2xl bg-stone-900/95 dark:bg-stone-850/95 text-white border border-amber-500/40 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-4 duration-300 select-none"
+          dir="rtl"
+        >
+          {/* Play / Pause button */}
+          <button
+            onClick={playRecorded}
+            className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 flex items-center justify-center font-bold shadow-md active:scale-95 transition-transform shrink-0"
+            title={isPlayingRecorded ? 'إيقاف مؤقت' : 'تشغيل التسجيل'}
+          >
+            {isPlayingRecorded ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+          </button>
+
+          {/* Info & Timer */}
+          <div className="flex flex-col min-w-0 pr-1">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 truncate">
+              <Volume2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{currentTake.surahName} — آية {currentTake.ayahNumber}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] text-stone-300 font-mono">
+              <span>{formatTimer(playbackTime)} / {formatTimer(playbackDuration)}</span>
+              <span className="px-1 py-0.2 rounded bg-white/10 font-bold">{playbackRate.toFixed(2)}x</span>
+            </div>
+          </div>
+
+          {/* Speed toggle quick */}
+          <button
+            onClick={() => {
+              const nextSpeed =
+                playbackRate === 1 ? 1.25 : playbackRate === 1.25 ? 1.5 : playbackRate === 1.5 ? 0.75 : 1
+              changeSpeed(nextSpeed)
+            }}
+            className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-mono font-bold text-amber-300 shrink-0"
+            title="تغيير سرعة الصوت"
+          >
+            {playbackRate.toFixed(2)}x
+          </button>
+
+          {/* Button to reopen recording panel */}
+          {onOpen && (
+            <button
+              onClick={onOpen}
+              className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold shrink-0 transition-colors"
+              title="فتح استوديو التسجيل الكامل"
+            >
+              الاستوديو
+            </button>
+          )}
+
+          {/* Close / stop take button */}
+          <button
+            onClick={() => {
+              if (playbackAudioRef.current) {
+                playbackAudioRef.current.pause()
+              }
+              setIsPlayingRecorded(false)
+              setCurrentTake(null)
+            }}
+            className="p-1 rounded-lg hover:bg-white/10 text-stone-400 hover:text-white shrink-0"
+            title="إغلاق مشغل التسجيل"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </>
   )
 }

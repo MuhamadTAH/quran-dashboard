@@ -12,12 +12,13 @@ import { RecordingSidePanel } from './components/RecordingSidePanel'
 import { LoginModal } from './components/LoginModal'
 import { checkAuthStatus } from './services/apiService'
 import { THEME_CONFIGS } from './utils/themeStyles'
-import { Mic } from 'lucide-react'
+import { Mic, BookOpen } from 'lucide-react'
 
 const MainContent: React.FC = () => {
   const { theme, activeTab, readingWidth } = useQuran()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [showNotesSidebar, setShowNotesSidebar] = useState(false)
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true)
   const [isRecordingPanelOpen, setIsRecordingPanelOpen] = useState(false)
   const [isRecordingPanelPinned, setIsRecordingPanelPinned] = useState(false)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
@@ -38,12 +39,26 @@ const MainContent: React.FC = () => {
     >
       {/* ── Fixed right sidebar ── */}
       <Sidebar
+        isOpen={isRightSidebarOpen}
+        onClose={() => setIsRightSidebarOpen(false)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         showNotesSidebar={showNotesSidebar}
         setShowNotesSidebar={setShowNotesSidebar}
         onOpenRecording={() => setIsRecordingPanelOpen(true)}
         isRecordingOpen={isRecordingPanelOpen}
       />
+
+      {/* ── Floating button to restore right sidebar when hidden ── */}
+      {!isRightSidebarOpen && (
+        <button
+          onClick={() => setIsRightSidebarOpen(true)}
+          className="fixed right-3 sm:right-5 top-4 z-30 flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs shadow-lg shadow-amber-500/20 active:scale-95 transition-all group font-ui"
+          title="إظهار القائمة الجانبية (نور القرآن)"
+        >
+          <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
+          <span>القائمة</span>
+        </button>
+      )}
 
       {/* ── Floating Recording Button (on left side) ── */}
       {!isRecordingPanelOpen && (
@@ -64,14 +79,17 @@ const MainContent: React.FC = () => {
       <RecordingSidePanel
         isOpen={isRecordingPanelOpen}
         onClose={() => setIsRecordingPanelOpen(false)}
+        onOpen={() => setIsRecordingPanelOpen(true)}
         isPinned={isRecordingPanelPinned}
         onTogglePin={() => setIsRecordingPanelPinned(!isRecordingPanelPinned)}
       />
 
-      {/* ── Main content area — offset by right sidebar (mr-56), and left panel if pinned (ml-80 / ml-96), then centered ── */}
+      {/* ── Main content area — offset by right sidebar (mr-56 or mr-0), and left panel if open (ml-80 / ml-96 or ml-0), then centered ── */}
       <div
-        className={`mr-56 ${
-          isRecordingPanelPinned && isRecordingPanelOpen ? 'ml-80 sm:ml-96' : ''
+        className={`${
+          isRightSidebarOpen ? 'mr-56' : 'mr-0'
+        } ${
+          isRecordingPanelOpen ? 'ml-80 sm:ml-96' : 'ml-0'
         } min-h-screen flex justify-center transition-[margin] duration-300`}
       >
         <main

@@ -15,6 +15,7 @@ import {
   Headphones,
   StickyNote,
   ChevronDown,
+  ChevronRight,
   AlignJustify,
   Type,
   Palette,
@@ -80,6 +81,8 @@ const ModeCircle: React.FC<{
 
 // ── Main Sidebar ──────────────────────────────────────────────────────────────
 interface SidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
   onOpenSettings: () => void
   showNotesSidebar: boolean
   setShowNotesSidebar: (v: boolean) => void
@@ -88,6 +91,8 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  isOpen = true,
+  onClose,
   onOpenSettings: _onOpenSettings,
   showNotesSidebar,
   setShowNotesSidebar,
@@ -163,21 +168,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`fixed right-0 top-0 h-screen w-56 flex flex-col border-l ${themeConfig.border} ${themeConfig.bgCard} z-30 overflow-y-auto`}
+      className={`fixed right-0 top-0 h-screen w-56 flex flex-col border-l ${themeConfig.border} ${themeConfig.bgCard} z-30 overflow-y-auto transition-transform duration-300 ${
+        isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+      }`}
       dir="rtl"
     >
-      {/* ── App Brand ── */}
-      <div
-        className="flex items-center gap-2.5 px-4 py-4 cursor-pointer select-none border-b border-current/10"
-        onClick={() => setActiveTab('dashboard')}
-      >
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-md shrink-0">
-          <BookOpen className="w-4.5 h-4.5 text-emerald-950" />
+      {/* ── App Brand + Hide Sidebar Button ── */}
+      <div className="flex items-center justify-between px-3 py-3 select-none border-b border-current/10">
+        <div
+          className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+          onClick={() => setActiveTab('dashboard')}
+        >
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-md shrink-0">
+            <BookOpen className="w-4 h-4 text-emerald-950" />
+          </div>
+          <div className="truncate">
+            <h1 className="text-xs font-bold leading-tight truncate">نور القرآن</h1>
+            <p className="text-[10px] opacity-60 truncate">المصحف والأذكار</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-sm font-bold leading-tight">نور القرآن</h1>
-          <p className="text-[10px] opacity-60">المصحف والأذكار</p>
-        </div>
+
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-xl border border-current/10 hover:bg-current/10 opacity-70 hover:opacity-100 transition-all flex items-center gap-0.5 text-xs shrink-0"
+            title="إخفاء الشريط الجانبي (تكبير مساحة المصحف)"
+          >
+            <ChevronRight className="w-4 h-4" />
+            <span className="text-[10px]">إخفاء</span>
+          </button>
+        )}
       </div>
 
       {/* ── Navigation tabs ── */}
