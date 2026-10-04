@@ -19,6 +19,7 @@ import {
   Type,
   Palette,
   Bot,
+  Mic,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -82,9 +83,17 @@ interface SidebarProps {
   onOpenSettings: () => void
   showNotesSidebar: boolean
   setShowNotesSidebar: (v: boolean) => void
+  onOpenRecording?: () => void
+  isRecordingOpen?: boolean
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSettings, showNotesSidebar, setShowNotesSidebar }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  onOpenSettings: _onOpenSettings,
+  showNotesSidebar,
+  setShowNotesSidebar,
+  onOpenRecording,
+  isRecordingOpen,
+}) => {
   const {
     theme,
     setTheme,
@@ -193,6 +202,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings: _onOpenSetting
           </button>
         ))}
       </nav>
+
+      {/* ── Studio Recording Trigger ── */}
+      {onOpenRecording && (
+        <div className="px-3 pt-2.5 pb-1 border-b border-current/10">
+          <button
+            onClick={onOpenRecording}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+              isRecordingOpen
+                ? 'border-red-500 bg-red-500/20 text-red-600 dark:text-red-400 shadow-sm'
+                : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300 hover:bg-red-500/20'
+            }`}
+            title="افتح استوديو تسجيل التلاوة المستقل"
+          >
+            <span className="flex items-center gap-2">
+              <Mic className="w-4 h-4 text-red-500" />
+              <span>تسجيل التلاوة</span>
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-600 dark:text-red-300 font-mono">
+              {isRecordingOpen ? 'مفتوح' : '🎙️'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* ── Scrollable settings area ── */}
       <div className="flex-1 px-3 py-3 space-y-1 overflow-y-auto text-sm">

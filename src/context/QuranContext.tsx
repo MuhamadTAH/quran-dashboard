@@ -115,7 +115,7 @@ interface QuranContextType {
   audioDuration: number
   audioCurrentTime: number
   seekAudio: (seconds: number) => void
-  speakWord: (word: string) => void
+  speakWord: (word: string, surahNumber?: number, ayahNumber?: number, wordIndex?: number) => void
 }
 
 const QuranContext = createContext<QuranContextType | undefined>(undefined)
@@ -463,14 +463,39 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }
 
-  // Word-level TTS (Web Speech API — Arabic)
-  const speakWord = (word: string) => {
+  // Word-level audio (tries authentic Quranic audio first, falls back to Web Speech API)
+  const wordAudioRef = useRef<HTMLAudioElement | null>(null)
+  const fallbackSpeak = (word: string) => {
     if (!('speechSynthesis' in window)) return
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(word)
     utt.lang = 'ar-SA'
     utt.rate = 0.8
     window.speechSynthesis.speak(utt)
+  }
+
+  const speakWord = (word: string, surahNumber?: number, ayahNumber?: number, wordIndex?: number) => {
+    if (surahNumber && ayahNumber && wordIndex && wordIndex > 0) {
+      const s = String(surahNumber).padStart(3, '0')
+      const a = String(ayahNumber).padStart(3, '0')
+      const w = String(wordIndex).padStart(3, '0')
+      const url = `https://audio.qurancdn.com/wbw/${s}_${a}_${w}.mp3`
+
+      if (!wordAudioRef.current) {
+        wordAudioRef.current = new Audio()
+      }
+      const audio = wordAudioRef.current
+      audio.pause()
+      audio.src = url
+      audio.onerror = () => {
+        fallbackSpeak(word)
+      }
+      audio.play().catch(() => {
+        fallbackSpeak(word)
+      })
+      return
+    }
+    fallbackSpeak(word)
   }
 
   // Audio setup

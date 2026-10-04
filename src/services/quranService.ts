@@ -10,6 +10,12 @@ export const RECITERS: Reciter[] = [
     folder: 'Alafasy_128kbps',
   },
   {
+    id: 'alijaber',
+    name: 'Ali Jaber',
+    arabicName: 'علي عبد الله جابر',
+    folder: 'Ali_Jaber_64kbps',
+  },
+  {
     id: 'abdulbasit',
     name: 'AbdulBaset AbdulSamad (Murattal)',
     arabicName: 'عبد الباسط عبد الصمد (مرتل)',

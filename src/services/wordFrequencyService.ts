@@ -39,6 +39,7 @@ export interface WordToken {
   isWord: boolean
   frequency: number
   isRare: boolean
+  wordPosition?: number
 }
 
 /**
@@ -47,6 +48,7 @@ export interface WordToken {
 export function tokenizeAyah(text: string, threshold: number = 1): WordToken[] {
   // Split by whitespace while preserving words
   const parts = text.split(/(\s+)/)
+  let wordCounter = 0
   return parts.map((part) => {
     const isWhitespace = /^\s+$/.test(part)
     if (isWhitespace) {
@@ -62,6 +64,9 @@ export function tokenizeAyah(text: string, threshold: number = 1): WordToken[] {
     const cleaned = cleanQuranWord(part)
     const freq = cleaned ? (freqMap[cleaned] ?? 0) : 0
     const isRare = freq > 0 && freq <= threshold
+    if (cleaned.length > 0) {
+      wordCounter += 1
+    }
 
     return {
       text: part,
@@ -69,6 +74,7 @@ export function tokenizeAyah(text: string, threshold: number = 1): WordToken[] {
       isWord: cleaned.length > 0,
       frequency: freq,
       isRare,
+      wordPosition: cleaned.length > 0 ? wordCounter : undefined,
     }
   })
 }

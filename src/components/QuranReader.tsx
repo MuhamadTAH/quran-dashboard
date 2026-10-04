@@ -248,14 +248,24 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     })
   }
 
-  const handleWordClick = (word: string, ayahNum: number, wordIdx: number, isRare: boolean, rareFreq?: number) => {
+  const handleWordClick = (
+    word: string,
+    ayahNum: number,
+    wordIdx: number,
+    isRare: boolean,
+    rareFreq?: number,
+    wordPosition?: number
+  ) => {
     if (isAiAskMode) {
       const ayah = currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)
       const cleanText = cleanAyahText(currentSurahNumber, ayahNum, ayah?.text || '')
       setAiModalTarget({ ayahNumber: ayahNum, ayahText: cleanText, wordText: word })
       return
     }
-    if (isAudioClickMode) { speakWord(word); return }
+    if (isAudioClickMode) {
+      speakWord(word, currentSurahNumber, ayahNum, wordPosition)
+      return
+    }
     if (isSelectionMode) { setNoteTarget({ ayahNumber: ayahNum, wordIndex: wordIdx, wordText: word }); return }
     if (isRare && rareFreq !== undefined) setSelectedWordInfo({ word, frequency: rareFreq })
   }
@@ -416,7 +426,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             return (
                               <span
                                 key={idx}
-                                onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency)}
+                                onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency, tok.wordPosition)}
                                 className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
                                   isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
                                 } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
@@ -438,7 +448,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           return (
                             <span
                               key={idx}
-                              onClick={() => handleWordClick(tok.text, ayah.numberInSurah, idx, false)}
+                              onClick={() => handleWordClick(tok.cleaned || tok.text, ayah.numberInSurah, idx, false, undefined, tok.wordPosition)}
                               className={`cursor-pointer rounded transition-colors ${
                                 isAiAskMode
                                   ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
@@ -601,7 +611,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             return (
                               <span
                                 key={idx}
-                                onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency)}
+                                onClick={() => handleWordClick(tok.cleaned, ayah.numberInSurah, idx, true, tok.frequency, tok.wordPosition)}
                                 className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
                                   isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
                                 } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
@@ -623,7 +633,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           return (
                             <span
                               key={idx}
-                              onClick={() => handleWordClick(tok.text, ayah.numberInSurah, idx, false)}
+                              onClick={() => handleWordClick(tok.cleaned || tok.text, ayah.numberInSurah, idx, false, undefined, tok.wordPosition)}
                               className={`cursor-pointer rounded transition-colors ${
                                 isAiAskMode
                                   ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
