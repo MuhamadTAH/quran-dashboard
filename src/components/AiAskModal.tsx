@@ -222,21 +222,38 @@ export const AiAskModal: React.FC<AiAskModalProps> = ({
         {/* ── Modal Scrollable Body ── */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           {/* Target Ayah & Word Context Card */}
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-current/10 space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold opacity-70">
-              <span className="flex items-center gap-1.5">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-current/10 space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-semibold">
+              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
                 <BookOpen className="w-3.5 h-3.5 text-amber-500" />
-                {surahName} — الآية {ayahNumber}
+                سورة {surahName} (رقم {surahNumber}) — الآية {ayahNumber}
               </span>
-              {wordText && (
-                <span className="px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-500/30">
-                  الكلمة: <strong>{wordText}</strong>
-                </span>
-              )}
+              <span className="text-[11px] opacity-60 font-mono">
+                ﴿الآية {ayahNumber}﴾
+              </span>
             </div>
-            <p className="font-quran-amiri text-lg sm:text-xl leading-relaxed text-right text-current/90 select-text">
-              « {ayahText} »
-            </p>
+
+            {/* Ayah full text */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold opacity-60 block">
+                الآية كاملة (Ayah):
+              </span>
+              <p className="font-quran-amiri text-base sm:text-lg leading-relaxed text-right text-current/90 select-text p-2 rounded-xl bg-current/5 border border-current/10">
+                « {ayahText} »
+              </p>
+            </div>
+
+            {/* Selective / Question about */}
+            {wordText && (
+              <div className="space-y-1 pt-1">
+                <span className="text-[11px] font-bold text-purple-700 dark:text-purple-300 block">
+                  الجزء المختار / السؤال عنه (Selective / Question about):
+                </span>
+                <div className="px-3 py-1.5 rounded-xl bg-purple-500/15 border border-purple-500/30 font-quran-amiri text-base text-purple-900 dark:text-purple-200 font-bold">
+                  « {wordText} »
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Quick Suggestion Chips */}

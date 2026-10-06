@@ -94,3 +94,35 @@ export interface AdhkarCategory {
   icon: string
   items: AdhkarItem[]
 }
+
+export type MistakeCategory =
+  | 'memory'      // نسيان
+  | 'mutashabih'   // تشابه آيات
+  | 'harakah'     // خطأ في التشكيل أو الحركة
+  | 'letter'      // خطأ في حرف
+  | 'word'        // خطأ في كلمة كاملة
+  | 'tajweed'     // حكم تجويدي
+  | 'other'       // غير ذلك
+
+export interface QuranMistake {
+  id: string
+  surahNumber: number
+  surahName?: string
+  ayahNumber: number
+  ayahText?: string
+  wordIndex?: number
+  selectedText?: string // word, letter, sentence, or ayah
+  reason: string        // why the reciter made a mistake on it
+  category?: MistakeCategory
+  timestamp: number
+  corrected?: boolean
+}
+
+export interface NotificationSettings {
+  enabled: boolean
+  dailyReminder: boolean
+  dailyReminderTime: string // e.g. "09:00"
+  adhkarReminder: boolean
+  mistakesReminder: boolean
+  soundEnabled: boolean
+}

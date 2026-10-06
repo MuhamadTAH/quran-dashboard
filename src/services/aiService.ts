@@ -33,13 +33,17 @@ const SYSTEM_PROMPT = `أنت "المساعد القرآني واللغوي ال
 export async function askQuranAi(params: QuranAiPromptContext): Promise<string> {
   const { surahNumber, surahName, ayahNumber, ayahText, wordText, question } = params
 
-  let userPrompt = `السورة: ${surahName} (رقم ${surahNumber})\nالآية رقم: ${ayahNumber}\nنص الآية الكريمة: «${ayahText}»\n`
-
+  let userPrompt = `السورة: ${surahName} (رقم السورة: ${surahNumber})
+رقم الآية: ${ayahNumber}
+الآية كاملة (Ayah): «${ayahText}»
+`
   if (wordText) {
-    userPrompt += `الكلمة المحددة: «${wordText}»\n`
+    userPrompt += `الجزء المختار / السؤال عنه (Selective / Question about): «${wordText}»\n`
+  } else {
+    userPrompt += `الجزء المختار / السؤال عنه (Selective / Question about): الآية الكريمة كاملة\n`
   }
 
-  userPrompt += `\nسؤال القارئ: ${question}\n\nيرجى الإجابة بدقة علمية واضحة وميسرة.`
+  userPrompt += `\nسؤال القارئ (Question): ${question}\n\nيرجى الإجابة بدقة علمية وتفسيرية ولغوية واضحة وميسرة.`
 
   const messages: QuranAiMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },

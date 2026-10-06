@@ -11,7 +11,6 @@ import {
   RotateCcw,
   Compass,
   Zap,
-  MousePointer2,
   Headphones,
   StickyNote,
   ChevronDown,
@@ -21,6 +20,9 @@ import {
   Palette,
   Bot,
   Mic,
+  AlertTriangle,
+  Bell,
+  Settings,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -53,7 +55,8 @@ const ModeCircle: React.FC<{
   activeClass: string
   onClick: () => void
   badge?: number
-}> = ({ icon, label, active, activeClass, onClick, badge }) => (
+  badgeClass?: string
+}> = ({ icon, label, active, activeClass, onClick, badge, badgeClass = 'bg-violet-500 text-white' }) => (
   <button
     onClick={onClick}
     title={label}
@@ -72,7 +75,7 @@ const ModeCircle: React.FC<{
       {label}
     </span>
     {badge !== undefined && badge > 0 && (
-      <span className="absolute -top-1 -right-0.5 w-4 h-4 bg-violet-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold shadow">
+      <span className={`absolute -top-1 -right-0.5 w-4 h-4 text-[9px] rounded-full flex items-center justify-center font-bold shadow ${badgeClass}`}>
         {badge}
       </span>
     )}
@@ -93,7 +96,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen = true,
   onClose,
-  onOpenSettings: _onOpenSettings,
+  onOpenSettings,
   showNotesSidebar,
   setShowNotesSidebar,
   onOpenRecording,
@@ -128,6 +131,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setRareWordThreshold,
     isSelectionMode,
     setIsSelectionMode,
+    isMistakeMode,
+    setIsMistakeMode,
+    showMistakesSidebar,
+    setShowMistakesSidebar,
     isAudioClickMode,
     setIsAudioClickMode,
     isAiAskMode,
@@ -137,6 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsSurahSelectorOpen,
     bookmarks,
     notes,
+    mistakes,
     currentSurahNumber,
     currentPageNumber,
     goToPage,
@@ -146,6 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const themeConfig = THEME_CONFIGS[theme]
   const currentSurahNotes = notes.filter((n) => n.surahNumber === currentSurahNumber)
+  const currentSurahMistakes = mistakes.filter((m) => m.surahNumber === currentSurahNumber)
 
   const themes: { id: ThemeMode; label: string; dot: string }[] = [
     { id: 'emerald', label: 'زمردي', dot: 'bg-emerald-600' },
@@ -568,71 +577,136 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Mode circles */}
         <div className="py-1">
-          <p className="text-[10px] font-bold opacity-60 px-1 mb-2.5">أوضاع التفاعل</p>
-          <div className="grid grid-cols-5 gap-0.5 justify-items-center">
-            {/* Rare words */}
+          <p className="text-[10px] font-bold opacity-60 px-1 mb-2">أوضاع التفاعل والملاحظات</p>
+          <div className="grid grid-cols-3 gap-2 justify-items-center">
+            {/* Note / Selection mode (Blue) */}
             <ModeCircle
-              icon={<Zap className="w-3.5 h-3.5" />}
-              label="نادرة"
-              active={highlightRareWords}
-              activeClass="bg-amber-500 text-stone-950"
-              onClick={() => setHighlightRareWords(!highlightRareWords)}
-            />
-
-            {/* Selection mode */}
-            <ModeCircle
-              icon={<MousePointer2 className="w-3.5 h-3.5" />}
-              label="اختيار"
+              icon={<StickyNote className="w-4 h-4" />}
+              label="ملاحظة"
               active={isSelectionMode}
-              activeClass="bg-blue-500 text-white"
+              activeClass="bg-blue-600 text-white shadow-blue-500/25"
               onClick={() => {
-                setIsSelectionMode(!isSelectionMode)
-                if (!isSelectionMode) {
+                const next = !isSelectionMode
+                setIsSelectionMode(next)
+                if (next) {
+                  setIsMistakeMode(false)
                   setIsAudioClickMode(false)
                   setIsAiAskMode(false)
                 }
               }}
+              badge={currentSurahNotes.length}
+              badgeClass="bg-blue-600 text-white"
             />
 
-            {/* Audio click mode */}
+            {/* Mistake mode (Red) */}
             <ModeCircle
-              icon={<Headphones className="w-3.5 h-3.5" />}
-              label="استماع"
-              active={isAudioClickMode}
-              activeClass="bg-emerald-600 text-white"
+              icon={<AlertTriangle className="w-4 h-4" />}
+              label="أخطاء"
+              active={isMistakeMode}
+              activeClass="bg-red-600 text-white shadow-red-500/25"
               onClick={() => {
-                setIsAudioClickMode(!isAudioClickMode)
-                if (!isAudioClickMode) {
+                const next = !isMistakeMode
+                setIsMistakeMode(next)
+                if (next) {
                   setIsSelectionMode(false)
+                  setIsAudioClickMode(false)
                   setIsAiAskMode(false)
                 }
               }}
+              badge={currentSurahMistakes.length}
+              badgeClass="bg-red-600 text-white"
             />
 
-            {/* Ask AI mode */}
+            {/* Ask AI mode (Purple) */}
             <ModeCircle
-              icon={<Bot className="w-3.5 h-3.5" />}
+              icon={<Bot className="w-4 h-4" />}
               label="اسأل AI"
               active={isAiAskMode}
               activeClass="bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-purple-500/25"
               onClick={() => {
-                setIsAiAskMode(!isAiAskMode)
-                if (!isAiAskMode) {
+                const next = !isAiAskMode
+                setIsAiAskMode(next)
+                if (next) {
                   setIsSelectionMode(false)
+                  setIsMistakeMode(false)
                   setIsAudioClickMode(false)
                 }
               }}
             />
 
-            {/* Notes panel */}
+            {/* Audio click mode (Emerald) */}
             <ModeCircle
-              icon={<StickyNote className="w-3.5 h-3.5" />}
-              label="ملاحظات"
-              active={showNotesSidebar}
-              activeClass="bg-violet-600 text-white"
-              onClick={() => setShowNotesSidebar(!showNotesSidebar)}
-              badge={currentSurahNotes.length}
+              icon={<Headphones className="w-4 h-4" />}
+              label="استماع"
+              active={isAudioClickMode}
+              activeClass="bg-emerald-600 text-white shadow-emerald-500/25"
+              onClick={() => {
+                const next = !isAudioClickMode
+                setIsAudioClickMode(next)
+                if (next) {
+                  setIsSelectionMode(false)
+                  setIsMistakeMode(false)
+                  setIsAiAskMode(false)
+                }
+              }}
             />
+
+            {/* Rare words (Amber) */}
+            <ModeCircle
+              icon={<Zap className="w-4 h-4" />}
+              label="نادرة"
+              active={highlightRareWords}
+              activeClass="bg-amber-500 text-stone-950 shadow-amber-500/25"
+              onClick={() => setHighlightRareWords(!highlightRareWords)}
+            />
+
+            {/* Settings & Notifications */}
+            <ModeCircle
+              icon={<Settings className="w-4 h-4" />}
+              label="الإعدادات"
+              active={false}
+              activeClass=""
+              onClick={onOpenSettings}
+            />
+          </div>
+
+          {/* Quick drawer drawers for Notes and Mistakes */}
+          <div className="grid grid-cols-2 gap-1.5 mt-2.5">
+            <button
+              onClick={() => setShowNotesSidebar(!showNotesSidebar)}
+              className={`flex items-center justify-between px-2 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
+                showNotesSidebar
+                  ? 'bg-blue-500/20 border-blue-500 text-blue-700 dark:text-blue-300'
+                  : 'border-current/10 hover:bg-current/5 opacity-75 hover:opacity-100'
+              }`}
+              title="عرض قائمة ملاحظات السورة الحالية"
+            >
+              <span className="flex items-center gap-1">
+                <StickyNote className="w-3 h-3 text-blue-500" />
+                <span>الملاحظات</span>
+              </span>
+              <span className="w-4 h-4 rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center justify-center font-mono text-[9px]">
+                {currentSurahNotes.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setShowMistakesSidebar(!showMistakesSidebar)}
+              className={`flex items-center justify-between px-2 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
+                showMistakesSidebar
+                  ? 'bg-red-500/20 border-red-500 text-red-700 dark:text-red-300'
+                  : 'border-current/10 hover:bg-current/5 opacity-75 hover:opacity-100'
+              }`}
+              title="عرض قائمة أخطاء التلاوة والحفظ المسجلة للسورة"
+            >
+              <span className="flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3 text-red-500" />
+                <span>الأخطاء</span>
+              </span>
+              <span className="w-4 h-4 rounded-full bg-red-500/20 text-red-700 dark:text-red-300 flex items-center justify-center font-mono text-[9px]">
+                {currentSurahMistakes.length}
+              </span>
+            </button>
           </div>
 
           {/* Rare words threshold (shows when active) */}
@@ -658,27 +732,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Active mode hint */}
-          {(isSelectionMode || isAudioClickMode || isAiAskMode) && (
-            <p className={`mt-2 text-[9px] leading-relaxed px-2 py-1.5 rounded-lg ${
-              isAiAskMode
-                ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 font-semibold'
-                : isSelectionMode
-                ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
-                : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-            }`}>
-              {isAiAskMode
-                ? '🤖 وضع سؤال الذكاء: انقر على أي كلمة أو رقم آية لطرح سؤالك عنها'
-                : isSelectionMode
-                ? 'انقر على آية أو كلمة لإضافة ملاحظة'
-                : 'انقر على رقم الآية للسماع، أو أي كلمة لنطقها'}
-            </p>
+          {(isSelectionMode || isMistakeMode || isAudioClickMode || isAiAskMode) && (
+            <div
+              className={`mt-2.5 p-2 rounded-xl border text-[10px] leading-relaxed transition-all ${
+                isMistakeMode
+                  ? 'bg-red-500/15 border-red-500/30 text-red-800 dark:text-red-200'
+                  : isAiAskMode
+                  ? 'bg-purple-500/15 border-purple-500/30 text-purple-800 dark:text-purple-200 font-semibold'
+                  : isSelectionMode
+                  ? 'bg-blue-500/15 border-blue-500/30 text-blue-800 dark:text-blue-200'
+                  : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+              }`}
+            >
+              <div className="font-bold flex items-center gap-1.5 mb-1">
+                {isMistakeMode && <AlertTriangle className="w-3.5 h-3.5 text-red-500" />}
+                {isAiAskMode && <Bot className="w-3.5 h-3.5 text-purple-500" />}
+                {isSelectionMode && <StickyNote className="w-3.5 h-3.5 text-blue-500" />}
+                {isAudioClickMode && <Headphones className="w-3.5 h-3.5 text-emerald-500" />}
+                <span>
+                  {isMistakeMode
+                    ? 'وضع تسجيل الأخطاء (أحمر)'
+                    : isAiAskMode
+                    ? 'وضع سؤال الذكاء الاصطناعي'
+                    : isSelectionMode
+                    ? 'وضع الملاحظات والتدبر (أزرق)'
+                    : 'وضع الاستماع الصوتي'}
+                </span>
+              </div>
+              <p className="opacity-90">
+                {isMistakeMode
+                  ? 'انقر على أي كلمة أو آية لتسجيل خطأ حفظ أو نسيان، وتلوينه بالأحمر.'
+                  : isAiAskMode
+                  ? 'انقر على أي كلمة أو رقم آية لطرح سؤالك عنها للذكاء الاصطناعي.'
+                  : isSelectionMode
+                  ? 'انقر على أي كلمة أو آية لإضافة ملاحظة، وتلوينها بالأزرق.'
+                  : 'انقر على رقم الآية للاستماع إليها، أو أي كلمة لنطقها.'}
+              </p>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ── Bottom: version tag ── */}
-      <div className="px-4 py-3 border-t border-current/10 text-[10px] opacity-40 text-center">
-        صدقة جارية
+      {/* ── Bottom: Quick Settings & Notifications + Brand ── */}
+      <div className="px-3 py-2.5 border-t border-current/10 flex items-center justify-between text-[11px]">
+        <button
+          onClick={onOpenSettings}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-current/15 hover:bg-current/10 transition-all font-semibold opacity-85 hover:opacity-100"
+          title="افتح إعدادات القراءة والإشعارات"
+        >
+          <Bell className="w-3.5 h-3.5 text-amber-500" />
+          <span>الإشعارات والإعدادات</span>
+        </button>
+        <span className="text-[10px] opacity-40">صدقة جارية</span>
       </div>
     </aside>
   )

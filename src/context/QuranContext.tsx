@@ -8,6 +8,9 @@ import type {
   LastRead,
   Reciter,
   SurahData,
+  QuranMistake,
+  MistakeCategory,
+  NotificationSettings,
 } from '../types/quran'
 import {
   RECITERS,
@@ -18,12 +21,21 @@ import {
   getSurahForPage,
   getSurahList,
 } from '../services/quranService'
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  initNotificationServiceWorker,
+  sendTestNotification,
+  checkScheduledReminders,
+  requestNotificationPermission,
+} from '../services/notificationService'
 
 // ─── Note Types ─────────────────────────────────────────────────────────────
 export interface QuranNote {
   id: string
   surahNumber: number
+  surahName?: string
   ayahNumber: number
+  ayahText?: string
   wordIndex?: number   // undefined = ayah-level note, number = word-level note
   selectedText?: string // phrase or part of ayah for this note
   text: string
@@ -76,6 +88,10 @@ interface QuranContextType {
   setIsAudioClickMode: (on: boolean) => void
   isAiAskMode: boolean
   setIsAiAskMode: (on: boolean) => void
+  isMistakeMode: boolean
+  setIsMistakeMode: (on: boolean) => void
+  showMistakesSidebar: boolean
+  setShowMistakesSidebar: (on: boolean) => void
 
   // Notes / Annotations
   notes: QuranNote[]
@@ -84,11 +100,44 @@ interface QuranContextType {
     ayahNumber: number,
     text: string,
     wordIndex?: number,
-    selectedText?: string
+    selectedText?: string,
+    surahName?: string,
+    ayahText?: string
   ) => void
   removeNote: (id: string) => void
   getAyahNotes: (surahNumber: number, ayahNumber: number) => QuranNote[]
-  getWordNote: (surahNumber: number, ayahNumber: number, wordIndex: number) => QuranNote | undefined
+  getWordNote: (surahNumber: number, ayahNumber: number, wordIndex?: number, wordText?: string) => QuranNote | undefined
+
+  // Mistakes (أخطاء الحفظ والتلاوة)
+  mistakes: QuranMistake[]
+  addMistake: (
+    surahNumber: number,
+    ayahNumber: number,
+    reason: string,
+    options?: {
+      surahName?: string
+      ayahText?: string
+      wordIndex?: number
+      selectedText?: string
+      category?: MistakeCategory
+    }
+  ) => void
+  removeMistake: (id: string) => void
+  updateMistake: (id: string, reason: string, category?: MistakeCategory) => void
+  toggleMistakeCorrected: (id: string) => void
+  getAyahMistakes: (surahNumber: number, ayahNumber: number) => QuranMistake[]
+  getWordMistake: (
+    surahNumber: number,
+    ayahNumber: number,
+    wordIndex?: number,
+    wordText?: string
+  ) => QuranMistake | undefined
+
+  // Web Notifications (إشعارات الهاتف والحاسوب)
+  notificationSettings: NotificationSettings
+  updateNotificationSettings: (settings: Partial<NotificationSettings>) => void
+  requestNotifications: () => Promise<boolean>
+  sendTestNotification: () => Promise<boolean>
 
   // Navigation & Views
   activeTab: 'dashboard' | 'quran' | 'adhkar' | 'bookmarks'
@@ -233,6 +282,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false)
   const [isAudioClickMode, setIsAudioClickMode] = useState<boolean>(false)
   const [isAiAskMode, setIsAiAskMode] = useState<boolean>(false)
+  const [isMistakeMode, setIsMistakeMode] = useState<boolean>(false)
+  const [showMistakesSidebar, setShowMistakesSidebar] = useState<boolean>(false)
 
   // Notes / Annotations
   const [notes, setNotes] = useState<QuranNote[]>(() => {
@@ -254,12 +305,16 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ayahNumber: number,
     text: string,
     wordIndex?: number,
-    selectedText?: string
+    selectedText?: string,
+    surahName?: string,
+    ayahText?: string
   ) => {
     const note: QuranNote = {
       id: `note_${surahNumber}_${ayahNumber}_${wordIndex ?? 'part'}_${Date.now()}`,
       surahNumber,
+      surahName,
       ayahNumber,
+      ayahText,
       wordIndex,
       selectedText,
       text,
@@ -274,15 +329,144 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const getAyahNotes = (surahNumber: number, ayahNumber: number) => {
     return notes.filter(
-      (n) => n.surahNumber === surahNumber && n.ayahNumber === ayahNumber && n.wordIndex === undefined
+      (n) => n.surahNumber === surahNumber && n.ayahNumber === ayahNumber
     )
   }
 
-  const getWordNote = (surahNumber: number, ayahNumber: number, wordIndex: number) => {
-    return notes.find(
-      (n) => n.surahNumber === surahNumber && n.ayahNumber === ayahNumber && n.wordIndex === wordIndex
+  const getWordNote = (
+    surahNumber: number,
+    ayahNumber: number,
+    wordIndex?: number,
+    wordText?: string
+  ) => {
+    return notes.find((n) => {
+      if (n.surahNumber !== surahNumber || n.ayahNumber !== ayahNumber) return false
+      if (wordIndex !== undefined && n.wordIndex === wordIndex) return true
+      if (wordText && n.selectedText) {
+        const cleanTok = wordText.trim()
+        const cleanSel = n.selectedText.trim()
+        return cleanSel === cleanTok || cleanSel.includes(cleanTok)
+      }
+      return false
+    })
+  }
+
+  // Mistakes / أخطاء التلاوة والحفظ
+  const [mistakes, setMistakes] = useState<QuranMistake[]>(() => {
+    try {
+      const saved = localStorage.getItem('quran_mistakes')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  const saveMistakes = (updated: QuranMistake[]) => {
+    setMistakes(updated)
+    localStorage.setItem('quran_mistakes', JSON.stringify(updated))
+  }
+
+  const addMistake = (
+    surahNumber: number,
+    ayahNumber: number,
+    reason: string,
+    options?: {
+      surahName?: string
+      ayahText?: string
+      wordIndex?: number
+      selectedText?: string
+      category?: MistakeCategory
+    }
+  ) => {
+    const newMistake: QuranMistake = {
+      id: `mistake_${surahNumber}_${ayahNumber}_${options?.wordIndex ?? 'part'}_${Date.now()}`,
+      surahNumber,
+      surahName: options?.surahName,
+      ayahNumber,
+      ayahText: options?.ayahText,
+      wordIndex: options?.wordIndex,
+      selectedText: options?.selectedText,
+      reason,
+      category: options?.category || 'memory',
+      timestamp: Date.now(),
+      corrected: false,
+    }
+    saveMistakes([newMistake, ...mistakes])
+  }
+
+  const removeMistake = (id: string) => {
+    saveMistakes(mistakes.filter((m) => m.id !== id))
+  }
+
+  const updateMistake = (id: string, reason: string, category?: MistakeCategory) => {
+    saveMistakes(
+      mistakes.map((m) => (m.id === id ? { ...m, reason, category: category || m.category } : m))
     )
   }
+
+  const toggleMistakeCorrected = (id: string) => {
+    saveMistakes(
+      mistakes.map((m) => (m.id === id ? { ...m, corrected: !m.corrected } : m))
+    )
+  }
+
+  const getAyahMistakes = (surahNumber: number, ayahNumber: number) => {
+    return mistakes.filter(
+      (m) => m.surahNumber === surahNumber && m.ayahNumber === ayahNumber
+    )
+  }
+
+  const getWordMistake = (
+    surahNumber: number,
+    ayahNumber: number,
+    wordIndex?: number,
+    wordText?: string
+  ) => {
+    return mistakes.find((m) => {
+      if (m.surahNumber !== surahNumber || m.ayahNumber !== ayahNumber) return false
+      if (wordIndex !== undefined && m.wordIndex === wordIndex) return true
+      if (wordText && m.selectedText) {
+        const cleanTok = wordText.trim()
+        const cleanSel = m.selectedText.trim()
+        return cleanSel === cleanTok || cleanSel.includes(cleanTok)
+      }
+      return false
+    })
+  }
+
+  // Web Notification Settings (الهاتف والحاسوب)
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() => {
+    try {
+      const saved = localStorage.getItem('quran_notification_settings')
+      return saved ? { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(saved) } : DEFAULT_NOTIFICATION_SETTINGS
+    } catch {
+      return DEFAULT_NOTIFICATION_SETTINGS
+    }
+  })
+
+  const updateNotificationSettings = (settingsPartial: Partial<NotificationSettings>) => {
+    const updated = { ...notificationSettings, ...settingsPartial }
+    setNotificationSettings(updated)
+    localStorage.setItem('quran_notification_settings', JSON.stringify(updated))
+  }
+
+  const requestNotifications = async (): Promise<boolean> => {
+    const perm = await requestNotificationPermission()
+    const granted = perm === 'granted'
+    updateNotificationSettings({ enabled: granted })
+    return granted
+  }
+
+  useEffect(() => {
+    initNotificationServiceWorker()
+
+    // Periodically evaluate scheduled reminders
+    const interval = setInterval(() => {
+      checkScheduledReminders(notificationSettings, mistakes.length)
+    }, 60000)
+
+    return () => clearInterval(interval)
+  }, [notificationSettings, mistakes.length])
 
   // Navigation tab with localStorage persistence
   const [activeTab, setActiveTabState] = useState<'dashboard' | 'quran' | 'adhkar' | 'bookmarks'>(() => {
@@ -798,11 +982,26 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setIsAudioClickMode,
         isAiAskMode,
         setIsAiAskMode,
+        isMistakeMode,
+        setIsMistakeMode,
+        showMistakesSidebar,
+        setShowMistakesSidebar,
         notes,
         addNote,
         removeNote,
         getAyahNotes,
         getWordNote,
+        mistakes,
+        addMistake,
+        removeMistake,
+        updateMistake,
+        toggleMistakeCorrected,
+        getAyahMistakes,
+        getWordMistake,
+        notificationSettings,
+        updateNotificationSettings,
+        requestNotifications,
+        sendTestNotification,
         activeTab,
         setActiveTab,
         currentSurahNumber,

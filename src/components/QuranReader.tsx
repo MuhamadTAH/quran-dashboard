@@ -19,10 +19,12 @@ import {
   MousePointer2,
   Bot,
   Loader2,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
-import type { FontFamily, LineSpacing, PageData } from '../types/quran'
+import type { FontFamily, LineSpacing, PageData, MistakeCategory, QuranMistake } from '../types/quran'
 import { tokenizeAyah, getSurahRareStats } from '../services/wordFrequencyService'
 import { cleanAyahText, fetchPage } from '../services/quranService'
 import { AiAskModal } from './AiAskModal'
@@ -37,9 +39,23 @@ const toArabicDigits = (num: number): string => {
     .join('')
 }
 
+// ─── Mistake Categories Constant ─────────────────────────────────────────────
+const MISTAKE_CATEGORIES: { id: MistakeCategory; label: string; icon: string; desc: string }[] = [
+  { id: 'memory', label: 'نسيان وحفظ', icon: '🧠', desc: 'نسيان موضع أو كلمة أو ترتيب الآية' },
+  { id: 'mutashabih', label: 'متشابهات', icon: '🔄', desc: 'تشابه مع موضع في سورة أخرى' },
+  { id: 'harakah', label: 'حركة وتشكيل', icon: '✍️', desc: 'خطأ في الفتحة أو الضمة أو الكسرة أو السكون' },
+  { id: 'letter', label: 'إبدال حرف', icon: '🔤', desc: 'إبدال أو زيادة أو حذف حرف' },
+  { id: 'word', label: 'إبدال كلمة', icon: '📖', desc: 'تقديم أو تأخير أو إبدال كلمة' },
+  { id: 'tajweed', label: 'حكم تجويدي', icon: '🎙️', desc: 'مد أو غنة أو إقلاب أو إخفاء' },
+  { id: 'other', label: 'أخرى', icon: '⚡', desc: 'تنبيه أو وقفة خاصة' },
+]
+
 // ─── Note Dialog ─────────────────────────────────────────────────────────────
 const NoteDialog: React.FC<{
+  surahNumber?: number
+  surahName?: string
   ayahNumber: number
+  ayahText?: string
   wordIndex?: number
   wordText?: string
   existingNote?: string
@@ -47,7 +63,18 @@ const NoteDialog: React.FC<{
   onDelete?: () => void
   onClose: () => void
   themeConfig: ThemeColors
-}> = ({ ayahNumber, wordText, existingNote, onSave, onDelete, onClose, themeConfig }) => {
+}> = ({
+  surahNumber,
+  surahName,
+  ayahNumber,
+  ayahText,
+  wordText,
+  existingNote,
+  onSave,
+  onDelete,
+  onClose,
+  themeConfig,
+}) => {
   const [text, setText] = useState(existingNote || '')
   return (
     <div
@@ -55,37 +82,63 @@ const NoteDialog: React.FC<{
       onClick={onClose}
     >
       <div
-        className={`w-full max-w-sm p-5 rounded-3xl ${themeConfig.bgCard} border ${themeConfig.border} shadow-2xl space-y-4`}
+        className={`w-full max-w-md p-5 sm:p-6 rounded-3xl ${themeConfig.bgCard} border ${themeConfig.border} shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-sm">
-            <StickyNote className="w-4 h-4 text-amber-500" />
-            <span className="truncate">
-              {wordText
-                ? `ملاحظة على الجزء المختار`
-                : `ملاحظة — الآية ${ayahNumber}`}
-            </span>
+        <div className="flex items-center justify-between pb-2 border-b border-current/10">
+          <div className="flex items-center gap-2 font-bold text-sm text-blue-600 dark:text-blue-400">
+            <StickyNote className="w-4 h-4" />
+            <span>ملاحظة وتدبر على الآية</span>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg border border-current/10 hover:bg-current/10">
             <X className="w-4 h-4" />
           </button>
         </div>
-        {wordText && (
-          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-quran-amiri text-amber-900 dark:text-amber-200 leading-relaxed text-right">
-            « {wordText} »
+
+        {/* Surah & Ayah header info */}
+        <div className="flex items-center justify-between text-xs font-semibold px-1 text-stone-600 dark:text-stone-300">
+          <span>{surahName ? `سورة ${surahName} (رقم ${surahNumber || 1})` : `سورة رقم ${surahNumber || 1}`}</span>
+          <span className="font-mono">الآية {toArabicDigits(ayahNumber)}</span>
+        </div>
+
+        {/* Full Ayah card */}
+        {ayahText && (
+          <div className="space-y-1 text-right">
+            <div className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
+              الآية كاملة (Ayah):
+            </div>
+            <div className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-current/10 font-quran-amiri text-sm sm:text-base leading-relaxed text-stone-800 dark:text-stone-200">
+              « {ayahText} »
+            </div>
           </div>
         )}
-        <textarea
-          autoFocus
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="اكتب ملاحظتك هنا..."
-          rows={4}
-          className={`w-full resize-none rounded-xl border border-current/15 ${themeConfig.bgCard} p-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 leading-relaxed font-ui`}
-        />
-        <div className="flex items-center gap-2">
+
+        {/* Selected part card */}
+        {wordText && (
+          <div className="space-y-1 text-right">
+            <div className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+              الجزء المختار / الملاحظة عنه (Selective):
+            </div>
+            <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 font-quran-amiri text-sm text-blue-900 dark:text-blue-200 leading-relaxed font-bold">
+              « {wordText} »
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1 text-right">
+          <label className="text-[11px] font-bold opacity-75 block">نص الملاحظة:</label>
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="اكتب ملاحظتك وتأملك هنا..."
+            rows={4}
+            className={`w-full resize-none rounded-xl border border-current/15 ${themeConfig.bgCard} p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 leading-relaxed font-ui`}
+          />
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
           <button
             onClick={() => {
               if (text.trim()) {
@@ -94,7 +147,7 @@ const NoteDialog: React.FC<{
               }
             }}
             disabled={!text.trim()}
-            className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-stone-950 font-bold text-xs transition-colors"
+            className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs transition-colors shadow-md shadow-blue-600/20"
           >
             حفظ الملاحظة
           </button>
@@ -105,6 +158,176 @@ const NoteDialog: React.FC<{
                 onClose()
               }}
               className="p-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
+              title="حذف الملاحظة"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Mistake Dialog ──────────────────────────────────────────────────────────
+const MistakeDialog: React.FC<{
+  surahNumber: number
+  surahName: string
+  ayahNumber: number
+  ayahText: string
+  wordText?: string
+  existingMistake?: QuranMistake
+  onSave: (reason: string, category: MistakeCategory) => void
+  onDelete?: () => void
+  onToggleCorrected?: () => void
+  onClose: () => void
+  themeConfig: ThemeColors
+}> = ({
+  surahNumber,
+  surahName,
+  ayahNumber,
+  ayahText,
+  wordText,
+  existingMistake,
+  onSave,
+  onDelete,
+  onToggleCorrected,
+  onClose,
+  themeConfig,
+}) => {
+  const [reason, setReason] = useState(existingMistake?.reason || '')
+  const [category, setCategory] = useState<MistakeCategory>(existingMistake?.category || 'memory')
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className={`w-full max-w-lg p-5 sm:p-6 rounded-3xl ${themeConfig.bgCard} border border-red-500/30 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between pb-2 border-b border-current/10">
+          <div className="flex items-center gap-2 font-bold text-sm text-red-600 dark:text-red-400">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <span>تسجيل وتثبيت خطأ التلاوة / الحفظ</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg border border-current/10 hover:bg-current/10">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Surah & Ayah Information */}
+        <div className="flex items-center justify-between text-xs font-semibold px-1 text-stone-600 dark:text-stone-300">
+          <span>{surahName ? `سورة ${surahName} (رقم ${surahNumber})` : `سورة رقم ${surahNumber}`}</span>
+          <span className="font-mono">الآية {toArabicDigits(ayahNumber)}</span>
+        </div>
+
+        {/* Full Ayah (الآية كاملة) */}
+        {ayahText && (
+          <div className="space-y-1 text-right">
+            <div className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
+              الآية كاملة (Ayah):
+            </div>
+            <div className="p-3 rounded-2xl bg-black/5 dark:bg-white/5 border border-current/10 font-quran-amiri text-sm sm:text-base leading-relaxed text-stone-800 dark:text-stone-200">
+              « {ayahText} »
+            </div>
+          </div>
+        )}
+
+        {/* Selective Part (الجزء المختار / موضع الخطأ) */}
+        <div className="space-y-1 text-right">
+          <div className="text-[11px] font-bold text-red-600 dark:text-red-400">
+            الجزء المختار / موضع الخطأ (Selective):
+          </div>
+          <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/25 font-quran-amiri text-sm text-red-900 dark:text-red-200 leading-relaxed font-bold">
+            « {wordText || 'كامل الآية'} »
+          </div>
+        </div>
+
+        {/* Category selector */}
+        <div className="space-y-1.5 text-right">
+          <label className="text-[11px] font-bold opacity-75 block">نوع وتصنيف الخطأ:</label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {MISTAKE_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setCategory(cat.id)}
+                className={`p-2 rounded-xl text-xs font-medium text-right border transition-all flex items-center gap-1.5 ${
+                  category === cat.id
+                    ? 'border-red-500 bg-red-500/20 text-red-700 dark:text-red-300 font-bold shadow-sm ring-1 ring-red-400'
+                    : 'border-current/10 hover:bg-current/5 opacity-80'
+                }`}
+                title={cat.desc}
+              >
+                <span>{cat.icon}</span>
+                <span className="truncate">{cat.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Reason textarea */}
+        <div className="space-y-1 text-right">
+          <label className="text-[11px] font-bold opacity-75 block">
+            سبب الخطأ أو التنبيه لمراجعته:
+          </label>
+          <textarea
+            autoFocus
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="اكتب سبب الخطأ لمراجعته لاحقاً (مثال: نسيت بداية الآية، تشابه مع موضع البقرة، فتحة عوض كسرة...)"
+            rows={3}
+            className={`w-full resize-none rounded-xl border border-current/15 ${themeConfig.bgCard} p-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 leading-relaxed font-ui`}
+          />
+        </div>
+
+        {/* Corrected status toggle if existing */}
+        {existingMistake && onToggleCorrected && (
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs">
+            <span className="text-emerald-800 dark:text-emerald-300 font-semibold flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              <span>الحالة: {existingMistake.corrected ? 'تم التصحيح والإتقان ✓' : 'يحتاج مراجعة وتكرار ⚠️'}</span>
+            </span>
+            <button
+              type="button"
+              onClick={onToggleCorrected}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${
+                existingMistake.corrected
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/30'
+              }`}
+            >
+              {existingMistake.corrected ? 'أتقنتها ✓' : 'تعليم كمتقن'}
+            </button>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            onClick={() => {
+              if (reason.trim()) {
+                onSave(reason.trim(), category)
+                onClose()
+              }
+            }}
+            disabled={!reason.trim()}
+            className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-bold text-xs transition-colors shadow-md shadow-red-600/25"
+          >
+            {existingMistake ? 'تحديث موضع الخطأ' : 'حفظ موضع الخطأ'}
+          </button>
+          {onDelete && (
+            <button
+              onClick={() => {
+                onDelete()
+                onClose()
+              }}
+              className="p-2.5 rounded-xl border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors"
+              title="حذف هذا الخطأ"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -124,9 +347,12 @@ const AyahPopup: React.FC<{
   themeConfig: ThemeColors
   isPlaying: boolean
   isSelectionMode: boolean
+  isMistakeMode: boolean
   hasNote: boolean
+  hasMistake: boolean
   onPlay: () => void
   onNote: () => void
+  onMistake: () => void
   onSelect: () => void
   onAskAi: () => void
   onClose: () => void
@@ -136,22 +362,38 @@ const AyahPopup: React.FC<{
   themeConfig,
   isPlaying,
   isSelectionMode,
+  isMistakeMode: _isMistakeMode,
   hasNote,
+  hasMistake,
   onPlay,
   onNote,
+  onMistake,
   onSelect,
   onAskAi,
   onClose,
 }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
     <div
-      className={`${themeConfig.bgCard} border ${themeConfig.border} rounded-2xl shadow-2xl p-4 w-60 space-y-2`}
+      className={`${themeConfig.bgCard} border ${themeConfig.border} rounded-2xl shadow-2xl p-4 w-64 space-y-2`}
       onClick={(e) => e.stopPropagation()}
       dir="rtl"
     >
       <p className="text-xs font-bold opacity-60 text-center pb-1 border-b border-current/10">
         {surahName} — الآية {ayahNum}
       </p>
+      {/* Record Mistake */}
+      <button
+        onClick={() => {
+          onMistake()
+          onClose()
+        }}
+        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-red-500/10 text-sm font-semibold text-right transition-colors ${
+          hasMistake ? 'bg-red-500/15 text-red-700 dark:text-red-300' : 'text-red-600 dark:text-red-400'
+        }`}
+      >
+        <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+        {hasMistake ? 'تعديل الخطأ المسجل' : 'تسجيل خطأ في التلاوة'}
+      </button>
       {/* Ask AI about this ayah */}
       <button
         onClick={() => {
@@ -180,11 +422,11 @@ const AyahPopup: React.FC<{
           onNote()
           onClose()
         }}
-        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-violet-500/10 text-sm font-semibold text-right transition-colors ${
-          hasNote ? 'text-violet-600 dark:text-violet-400' : ''
+        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-blue-500/10 text-sm font-semibold text-right transition-colors ${
+          hasNote ? 'text-blue-600 dark:text-blue-400' : ''
         }`}
       >
-        <StickyNote className="w-4 h-4 text-violet-500 shrink-0" />
+        <StickyNote className="w-4 h-4 text-blue-500 shrink-0" />
         {hasNote ? 'تعديل الملاحظة' : 'إضافة ملاحظة'}
       </button>
       {/* Select ayah */}
@@ -216,9 +458,12 @@ const MadaniPageView: React.FC<{
   isAiAskMode: boolean
   isAudioClickMode: boolean
   isSelectionMode: boolean
+  isMistakeMode: boolean
   selectedAyahs: Set<number>
   getAyahNotes: (s: number, a: number) => any[]
-  getWordNote: (s: number, a: number, w: number) => any
+  getWordNote: (s: number, a: number, w?: number, text?: string) => any
+  getAyahMistakes: (s: number, a: number) => QuranMistake[]
+  getWordMistake: (s: number, a: number, w?: number, text?: string) => QuranMistake | undefined
   onWordClick: (
     word: string,
     ayahNum: number,
@@ -242,9 +487,12 @@ const MadaniPageView: React.FC<{
   isAiAskMode,
   isAudioClickMode,
   isSelectionMode,
+  isMistakeMode,
   selectedAyahs,
   getAyahNotes,
   getWordNote,
+  getAyahMistakes,
+  getWordMistake,
   onWordClick,
   onAyahClick,
   onPlayPage,
@@ -316,6 +564,7 @@ const MadaniPageView: React.FC<{
           const tokens = tokenizeAyah(cleanText, rareWordThreshold)
           const isSelected = selectedAyahs.has(ayah.numberInSurah)
           const ayahNotes = getAyahNotes(ayah.surahNumber, ayah.numberInSurah)
+          const ayahMistakes = getAyahMistakes(ayah.surahNumber, ayah.numberInSurah)
 
           return (
             <React.Fragment key={`${ayah.surahNumber}-${ayah.numberInSurah}-${aIdx}`}>
@@ -352,7 +601,12 @@ const MadaniPageView: React.FC<{
               >
                 {tokens.map((tok, tIdx) => {
                   if (!tok.isWord) return <span key={tIdx}>{tok.text}</span>
-                  const wordNote = getWordNote(ayah.surahNumber, ayah.numberInSurah, tIdx)
+                  const tokWord = tok.cleaned || tok.text
+                  const wordNote = getWordNote(ayah.surahNumber, ayah.numberInSurah, tIdx, tokWord)
+                  const wordMistake = getWordMistake(ayah.surahNumber, ayah.numberInSurah, tIdx, tokWord)
+                  const isWordMistakeActive = !!(wordMistake && isMistakeMode)
+                  const isWordNoteActive = !!(wordNote && isSelectionMode && !isWordMistakeActive)
+
                   if (tok.isRare && highlightRareWords) {
                     return (
                       <span
@@ -369,23 +623,43 @@ const MadaniPageView: React.FC<{
                             cleanText
                           )
                         }
-                        className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
-                          isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
-                        } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                        title={
+                        className={`relative inline-block cursor-pointer font-bold rounded px-1 mx-0.5 transition-colors shadow-sm ${
+                          isWordMistakeActive
+                            ? 'bg-red-500/30 text-red-950 dark:text-red-100 ring-2 ring-red-500 border-b-2 border-red-600'
+                            : isWordNoteActive
+                            ? 'bg-blue-500/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500 border-b-2 border-blue-600'
+                            : 'bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 hover:bg-amber-400/40'
+                        } ${
                           isAiAskMode
+                            ? 'hover:ring-2 hover:ring-purple-400'
+                            : isMistakeMode
+                            ? 'hover:ring-2 hover:ring-red-400'
+                            : isSelectionMode
+                            ? 'hover:ring-2 hover:ring-blue-400'
+                            : ''
+                        }`}
+                        title={
+                          isMistakeMode
+                            ? `تسجيل خطأ على الكلمة: ${tokWord}${wordMistake ? ` (${wordMistake.reason})` : ''}`
+                            : isAiAskMode
                             ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
                             : isAudioClickMode
                             ? `سماع: ${tok.cleaned}`
                             : isSelectionMode
-                            ? 'ملاحظة على هذه الكلمة'
+                            ? `ملاحظة على الكلمة${wordNote ? ` (${wordNote.text})` : ''}`
                             : `نادرة — ${tok.frequency} مرة`
                         }
                       >
                         {tok.text}
-                        {wordNote && (
-                          <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
-                        )}
+                        {isWordMistakeActive ? (
+                          <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`خطأ مسجل: ${wordMistake?.reason}`} />
+                        ) : isWordNoteActive ? (
+                          <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`ملاحظة مسجلة: ${wordNote?.text}`} />
+                        ) : wordMistake ? (
+                          <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-red-500/80 rounded-full" />
+                        ) : wordNote ? (
+                          <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-blue-500/80 rounded-full" />
+                        ) : null}
                       </span>
                     )
                   }
@@ -404,20 +678,41 @@ const MadaniPageView: React.FC<{
                           cleanText
                         )
                       }
-                      className={`cursor-pointer rounded transition-colors ${
-                        isAiAskMode
+                      className={`relative inline-block cursor-pointer rounded transition-colors ${
+                        isWordMistakeActive
+                          ? 'bg-red-500/30 text-red-950 dark:text-red-100 ring-2 ring-red-500 font-bold border-b-2 border-red-600 px-1 mx-0.5 shadow-sm'
+                          : isWordNoteActive
+                          ? 'bg-blue-500/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500 font-bold border-b-2 border-blue-600 px-1 mx-0.5 shadow-sm'
+                          : isAiAskMode
                           ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                          : isMistakeMode
+                          ? 'hover:bg-red-500/20 hover:ring-1 hover:ring-red-400 px-0.5'
+                          : isSelectionMode
+                          ? 'hover:bg-blue-500/20 hover:ring-1 hover:ring-blue-400 px-0.5'
                           : 'hover:bg-amber-500/10'
-                      } ${wordNote ? 'ring-1 ring-violet-300 rounded px-0.5' : ''}`}
+                      }`}
                       title={
-                        isAiAskMode
+                        isMistakeMode
+                          ? `تسجيل خطأ على: ${tokWord}${wordMistake ? ` (${wordMistake.reason})` : ''}`
+                          : isAiAskMode
                           ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
                           : isAudioClickMode
                           ? `سماع: ${tok.cleaned || tok.text}`
+                          : isSelectionMode
+                          ? `ملاحظة على: ${tokWord}${wordNote ? ` (${wordNote.text})` : ''}`
                           : undefined
                       }
                     >
                       {tok.text}
+                      {isWordMistakeActive ? (
+                        <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`خطأ مسجل: ${wordMistake?.reason}`} />
+                      ) : isWordNoteActive ? (
+                        <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`ملاحظة مسجلة: ${wordNote?.text}`} />
+                      ) : wordMistake ? (
+                        <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-red-500/80 rounded-full" />
+                      ) : wordNote ? (
+                        <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-blue-500/80 rounded-full" />
+                      ) : null}
                     </span>
                   )
                 })}
@@ -430,15 +725,28 @@ const MadaniPageView: React.FC<{
                       ? 'ring-2 ring-purple-400/80 bg-purple-500/15 text-purple-800 dark:text-purple-200 hover:bg-purple-500/30'
                       : isAudioClickMode
                       ? 'ring-2 ring-emerald-400/60'
+                      : isMistakeMode
+                      ? 'ring-2 ring-red-400/80 bg-red-500/15 text-red-800 dark:text-red-200 hover:bg-red-500/30'
                       : isSelectionMode
-                      ? 'ring-2 ring-blue-400/60'
+                      ? 'ring-2 ring-blue-400/60 hover:bg-blue-500/20'
                       : 'hover:ring-2 hover:ring-amber-400/60'
-                  } ${isSelected ? '!bg-blue-500 !text-white' : ''}`}
+                  } ${
+                    ayahMistakes.length > 0 && isMistakeMode
+                      ? '!bg-red-600 !text-white !ring-2 !ring-red-400'
+                      : ayahNotes.length > 0 && isSelectionMode
+                      ? '!bg-blue-600 !text-white !ring-2 !ring-blue-400'
+                      : isSelected
+                      ? '!bg-blue-500 !text-white'
+                      : ''
+                  }`}
                   title={`الآية ${ayah.numberInSurah} — انقر للخيارات`}
                 >
                   {toArabicDigits(ayah.numberInSurah)}
-                  {ayahNotes.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
+                  {ayahMistakes.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-1 ring-white" title={`${ayahMistakes.length} أخطاء مسجلة`} />
+                  )}
+                  {ayahNotes.length > 0 && ayahMistakes.length === 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-1 ring-white" title={`${ayahNotes.length} ملاحظات`} />
                   )}
                 </span>
               </span>
@@ -477,6 +785,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     isSelectionMode,
     isAudioClickMode,
     isAiAskMode,
+    isMistakeMode,
+    setIsMistakeMode: _setIsMistakeMode,
+    showMistakesSidebar,
+    setShowMistakesSidebar,
+    mistakes,
+    addMistake,
+    removeMistake,
+    updateMistake,
+    toggleMistakeCorrected,
+    getAyahMistakes,
+    getWordMistake,
     notes,
     addNote,
     removeNote,
@@ -511,6 +830,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     wordIndex?: number
     wordText?: string
     surahNumber?: number
+    surahName?: string
+    ayahText?: string
+  } | null>(null)
+  const [mistakeTarget, setMistakeTarget] = useState<{
+    ayahNumber: number
+    wordIndex?: number
+    wordText?: string
+    surahNumber?: number
+    surahName?: string
+    ayahText?: string
+    existingMistake?: QuranMistake
   } | null>(null)
   const [selectedAyahs, setSelectedAyahs] = useState<Set<number>>(new Set())
 
@@ -775,12 +1105,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     const activeSelection = window.getSelection()?.toString().trim()
     const targetText = activeSelection && activeSelection.length > 1 ? activeSelection : word
     const targetWordIndex = activeSelection && activeSelection.length > 1 ? undefined : wordIdx
+    const ayahText =
+      fullAyahText ||
+      currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)?.text ||
+      targetText
 
     if (isAiAskMode) {
-      const ayahText =
-        fullAyahText ||
-        currentSurahData?.ayahs.find((a) => a.numberInSurah === ayahNum)?.text ||
-        targetText
       setAiModalTarget({
         ayahNumber: ayahNum,
         ayahText,
@@ -800,12 +1130,26 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
       return
     }
 
+    if (isMistakeMode) {
+      setMistakeTarget({
+        ayahNumber: ayahNum,
+        wordIndex: targetWordIndex,
+        wordText: targetText,
+        surahNumber: sNum,
+        surahName: sName,
+        ayahText,
+      })
+      return
+    }
+
     if (isSelectionMode) {
       setNoteTarget({
         ayahNumber: ayahNum,
         wordIndex: targetWordIndex,
         wordText: targetText,
         surahNumber: sNum,
+        surahName: sName,
+        ayahText,
       })
       return
     }
@@ -843,6 +1187,16 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
       return
     }
 
+    if (isMistakeMode) {
+      setMistakeTarget({
+        ayahNumber: ayahNum,
+        surahNumber: sNum,
+        surahName: sName,
+        ayahText: aText,
+      })
+      return
+    }
+
     if (isSelectionMode) {
       toggleAyahSelected(ayahNum)
       return
@@ -858,6 +1212,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   }
 
   const currentSurahNotes = notes.filter((n) => n.surahNumber === currentSurahNumber)
+  const currentSurahMistakes = mistakes.filter((m) => m.surahNumber === currentSurahNumber)
 
   // ── Loading & Error Fallbacks ─────────────────────────────────────────────
   if (isLoadingSurah && !currentSurahData && readingMode === 'verse') {
@@ -886,25 +1241,29 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   return (
     <div className="pb-28 space-y-5" onMouseUp={handleMouseUp}>
       {/* ── Active mode hint bar ── */}
-      {(isSelectionMode || isAudioClickMode || isAiAskMode) && (
+      {(isSelectionMode || isAudioClickMode || isAiAskMode || isMistakeMode) && (
         <div
           className={`text-center text-xs py-2 px-4 rounded-xl border ${
-            isAiAskMode
+            isMistakeMode
+              ? 'bg-red-500/15 border-red-500/40 text-red-700 dark:text-red-300 font-semibold'
+              : isAiAskMode
               ? 'bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-300 font-semibold'
               : isSelectionMode
-              ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+              ? 'bg-blue-500/10 border-blue-500/30 text-blue-700 dark:text-blue-300 font-semibold'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-semibold'
           }`}
         >
-          {isAiAskMode
+          {isMistakeMode
+            ? '⚠️ وضع تسجيل الأخطاء — تظهر مواضع الأخطاء باللون الأحمر • انقر على أي كلمة أو جملة أو رقم آية لتسجيل خطأ وحفظ سببه'
+            : isAiAskMode
             ? '🤖 وضع سؤال الذكاء الاصطناعي — انقر على أي كلمة أو رقم آية لسؤال Gemini عن الرسم أو الإعراب أو التفسير'
             : isSelectionMode
-            ? '🟦 وضع الاختيار — انقر كلمة لملاحظتها • انقر رقم الآية لخيارات'
+            ? '🟦 وضع الملاحظات — تظهر الملاحظات باللون الأزرق • انقر كلمة لملاحظتها • انقر رقم الآية لخيارات'
             : '🎧 وضع الاستماع — انقر رقم الآية لخيارات • انقر كلمة لسماع نطقها'}
         </div>
       )}
 
-      {!isSelectionMode && !isAudioClickMode && !isAiAskMode && (
+      {!isSelectionMode && !isAudioClickMode && !isAiAskMode && !isMistakeMode && (
         <div className="text-center text-xs py-1.5 px-4 rounded-xl border border-current/10 opacity-50">
           💡 انقر على رقم أي آية لكتابة ملاحظة أو الاستماع • انقر على كلمة مضيئة لمعرفة تكرارها
         </div>
@@ -1015,9 +1374,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   isAiAskMode={isAiAskMode}
                   isAudioClickMode={isAudioClickMode}
                   isSelectionMode={isSelectionMode}
+                  isMistakeMode={isMistakeMode}
                   selectedAyahs={selectedAyahs}
                   getAyahNotes={getAyahNotes}
                   getWordNote={getWordNote}
+                  getAyahMistakes={getAyahMistakes}
+                  getWordMistake={getWordMistake}
                   onWordClick={handleWordClick}
                   onAyahClick={handleAyahNumberClick}
                   onPlayPage={playPage}
@@ -1109,9 +1471,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         isAiAskMode={isAiAskMode}
                         isAudioClickMode={isAudioClickMode}
                         isSelectionMode={isSelectionMode}
+                        isMistakeMode={isMistakeMode}
                         selectedAyahs={selectedAyahs}
                         getAyahNotes={getAyahNotes}
                         getWordNote={getWordNote}
+                        getAyahMistakes={getAyahMistakes}
+                        getWordMistake={getWordMistake}
                         onWordClick={handleWordClick}
                         onAyahClick={handleAyahNumberClick}
                         onPlayPage={playPage}
@@ -1279,6 +1644,25 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         </div>
 
                         <div className="flex items-center gap-1.5">
+                          {/* Record Mistake Button */}
+                          <button
+                            onClick={() => {
+                              setMistakeTarget({
+                                ayahNumber: ayah.numberInSurah,
+                                surahNumber: currentSurahNumber,
+                                surahName: currentSurahData.name,
+                                ayahText: cleanText,
+                              })
+                            }}
+                            className={`p-2 rounded-xl border transition-all ${
+                              getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length > 0
+                                ? 'bg-red-500/20 text-red-600 dark:text-red-300 border-red-500/50'
+                                : 'border-current/15 hover:bg-current/5 opacity-80 hover:opacity-100'
+                            }`}
+                            title="تسجيل خطأ في الحفظ أو التلاوة في هذه الآية"
+                          >
+                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                          </button>
                           <button
                             onClick={() => {
                               setAiModalTarget({
@@ -1309,16 +1693,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                               setNoteTarget({
                                 ayahNumber: ayah.numberInSurah,
                                 surahNumber: currentSurahNumber,
+                                surahName: currentSurahData.name,
+                                ayahText: cleanText,
                               })
                             }
                             className={`p-2 rounded-xl border transition-all ${
                               ayahNotes.length > 0
-                                ? 'bg-violet-500/20 text-violet-600 dark:text-violet-300 border-violet-500/50'
+                                ? 'bg-blue-500/20 text-blue-600 dark:text-blue-300 border-blue-500/50'
                                 : 'border-current/15 hover:bg-current/5 opacity-80 hover:opacity-100'
                             }`}
                             title="ملاحظة"
                           >
-                            <StickyNote className="w-4 h-4" />
+                            <StickyNote className="w-4 h-4 text-blue-500" />
                           </button>
                           <button
                             onClick={() =>
@@ -1364,7 +1750,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                       >
                         {tokens.map((tok, idx) => {
                           if (!tok.isWord) return <span key={idx}>{tok.text}</span>
-                          const wordNote = getWordNote(currentSurahNumber, ayah.numberInSurah, idx)
+                          const tokWord = tok.cleaned || tok.text
+                          const wordNote = getWordNote(currentSurahNumber, ayah.numberInSurah, idx, tokWord)
+                          const wordMistake = getWordMistake(currentSurahNumber, ayah.numberInSurah, idx, tokWord)
+                          const isWordMistakeActive = !!(wordMistake && isMistakeMode)
+                          const isWordNoteActive = !!(wordNote && isSelectionMode && !isWordMistakeActive)
+
                           if (tok.isRare && highlightRareWords) {
                             return (
                               <span
@@ -1381,23 +1772,43 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                                     cleanText
                                   )
                                 }
-                                className={`relative inline-block cursor-pointer font-bold bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 rounded px-1 mx-0.5 hover:bg-amber-400/40 transition-colors shadow-sm ${
-                                  isAiAskMode ? 'hover:ring-2 hover:ring-purple-400' : ''
-                                } ${wordNote ? 'ring-1 ring-violet-400' : ''}`}
-                                title={
+                                className={`relative inline-block cursor-pointer font-bold rounded px-1 mx-0.5 transition-colors shadow-sm ${
+                                  isWordMistakeActive
+                                    ? 'bg-red-500/30 text-red-950 dark:text-red-100 ring-2 ring-red-500 border-b-2 border-red-600'
+                                    : isWordNoteActive
+                                    ? 'bg-blue-500/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500 border-b-2 border-blue-600'
+                                    : 'bg-amber-400/25 dark:bg-amber-400/20 text-amber-900 dark:text-amber-200 border-b-2 border-amber-500 hover:bg-amber-400/40'
+                                } ${
                                   isAiAskMode
+                                    ? 'hover:ring-2 hover:ring-purple-400'
+                                    : isMistakeMode
+                                    ? 'hover:ring-2 hover:ring-red-400'
+                                    : isSelectionMode
+                                    ? 'hover:ring-2 hover:ring-blue-400'
+                                    : ''
+                                }`}
+                                title={
+                                  isMistakeMode
+                                    ? `تسجيل خطأ على: ${tokWord}${wordMistake ? ` (${wordMistake.reason})` : ''}`
+                                    : isAiAskMode
                                     ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
                                     : isAudioClickMode
                                     ? `سماع: ${tok.cleaned}`
                                     : isSelectionMode
-                                    ? 'ملاحظة'
+                                    ? `ملاحظة على: ${tokWord}${wordNote ? ` (${wordNote.text})` : ''}`
                                     : `نادرة — ${tok.frequency} مرة`
                                 }
                               >
                                 {tok.text}
-                                {wordNote && (
-                                  <span className="absolute -top-1.5 -right-1 w-2 h-2 bg-violet-500 rounded-full" />
-                                )}
+                                {isWordMistakeActive ? (
+                                  <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`خطأ مسجل: ${wordMistake?.reason}`} />
+                                ) : isWordNoteActive ? (
+                                  <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`ملاحظة مسجلة: ${wordNote?.text}`} />
+                                ) : wordMistake ? (
+                                  <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-red-500/80 rounded-full" />
+                                ) : wordNote ? (
+                                  <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-blue-500/80 rounded-full" />
+                                ) : null}
                               </span>
                             )
                           }
@@ -1416,21 +1827,135 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                                   cleanText
                                 )
                               }
-                              className={`cursor-pointer rounded transition-colors ${
-                                isAiAskMode
+                              className={`relative inline-block cursor-pointer rounded transition-colors ${
+                                isWordMistakeActive
+                                  ? 'bg-red-500/30 text-red-950 dark:text-red-100 ring-2 ring-red-500 font-bold border-b-2 border-red-600 px-1 mx-0.5 shadow-sm'
+                                  : isWordNoteActive
+                                  ? 'bg-blue-500/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-500 font-bold border-b-2 border-blue-600 px-1 mx-0.5 shadow-sm'
+                                  : isAiAskMode
                                   ? 'hover:bg-purple-500/20 hover:ring-1 hover:ring-purple-400 px-0.5'
+                                  : isMistakeMode
+                                  ? 'hover:bg-red-500/20 hover:ring-1 hover:ring-red-400 px-0.5'
+                                  : isSelectionMode
+                                  ? 'hover:bg-blue-500/20 hover:ring-1 hover:ring-blue-400 px-0.5'
                                   : 'hover:bg-amber-500/10'
-                              } ${wordNote ? 'ring-1 ring-violet-300 bg-violet-500/5 px-0.5' : ''}`}
-                              title={isAiAskMode ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة' : undefined}
+                              }`}
+                              title={
+                                isMistakeMode
+                                  ? `تسجيل خطأ على: ${tokWord}${wordMistake ? ` (${wordMistake.reason})` : ''}`
+                                  : isAiAskMode
+                                  ? 'اسأل الذكاء الاصطناعي عن هذه الكلمة'
+                                  : isAudioClickMode
+                                  ? `سماع: ${tok.cleaned || tok.text}`
+                                  : isSelectionMode
+                                  ? `ملاحظة على: ${tokWord}${wordNote ? ` (${wordNote.text})` : ''}`
+                                  : undefined
+                              }
                             >
                               {tok.text}
+                              {isWordMistakeActive ? (
+                                <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`خطأ مسجل: ${wordMistake?.reason}`} />
+                              ) : isWordNoteActive ? (
+                                <span className="absolute -top-1.5 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white dark:ring-stone-900" title={`ملاحظة مسجلة: ${wordNote?.text}`} />
+                              ) : wordMistake ? (
+                                <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-red-500/80 rounded-full" />
+                              ) : wordNote ? (
+                                <span className="absolute -top-1 -right-0.5 w-1.5 h-1.5 bg-blue-500/80 rounded-full" />
+                              ) : null}
                             </span>
                           )
                         })}
-                        <span className={`ayah-number ${themeConfig.ayahMarker}`}>
+                        {/* End of Ayah marker */}
+                        <span
+                          onClick={() => handleAyahNumberClick(ayah.numberInSurah, currentSurahNumber, currentSurahData.name, cleanText)}
+                          className={`ayah-number ${themeConfig.ayahMarker} cursor-pointer relative inline-flex items-center justify-center font-mono mx-1 text-xs select-none ${
+                            getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length > 0 && isMistakeMode
+                              ? '!bg-red-600 !text-white !ring-2 !ring-red-400'
+                              : ayahNotes.length > 0 && isSelectionMode
+                              ? '!bg-blue-600 !text-white !ring-2 !ring-blue-400'
+                              : isSelectedAyah
+                              ? '!bg-blue-500 !text-white'
+                              : ''
+                          }`}
+                          title={`الآية ${ayah.numberInSurah} — انقر للخيارات`}
+                        >
                           {toArabicDigits(ayah.numberInSurah)}
+                          {getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-600 rounded-full ring-1 ring-white" title={`${getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length} أخطاء مسجلة`} />
+                          )}
+                          {ayahNotes.length > 0 && getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length === 0 && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-1 ring-white" title={`${ayahNotes.length} ملاحظات`} />
+                          )}
                         </span>
                       </div>
+
+                      {/* Ayah mistakes list */}
+                      {getAyahMistakes(currentSurahNumber, ayah.numberInSurah).length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          {getAyahMistakes(currentSurahNumber, ayah.numberInSurah).map((m) => (
+                            <div
+                              key={m.id}
+                              className={`flex items-start gap-2 p-2.5 rounded-xl border text-xs ${
+                                m.corrected
+                                  ? 'bg-emerald-500/10 border-emerald-500/20'
+                                  : 'bg-red-500/10 border-red-500/20'
+                              }`}
+                              dir="rtl"
+                            >
+                              <AlertTriangle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${m.corrected ? 'text-emerald-500' : 'text-red-500'}`} />
+                              <div className="flex-1 space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {m.selectedText && (
+                                    <span className="inline-block text-[11px] font-quran-amiri font-bold text-red-800 dark:text-red-200 bg-red-500/15 border border-red-500/30 px-1.5 py-0.5 rounded-md">
+                                      « {m.selectedText} »
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-500/15 font-semibold">
+                                    {m.category === 'memory' ? '🧠 نسيان' : m.category === 'mutashabih' ? '🔄 متشابهات' : m.category === 'harakah' ? '✍️ تشكيل' : m.category === 'letter' ? '🔤 حرف' : m.category === 'word' ? '📖 كلمة' : m.category === 'tajweed' ? '🎙️ تجويد' : '⚡ أخرى'}
+                                  </span>
+                                  <button
+                                    onClick={() => toggleMistakeCorrected(m.id)}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold transition-colors ${
+                                      m.corrected
+                                        ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                                        : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                                    }`}
+                                  >
+                                    {m.corrected ? 'تم التصحيح ✓' : 'يحتاج مراجعة ⚠️'}
+                                  </button>
+                                </div>
+                                <p className="leading-relaxed text-stone-800 dark:text-stone-200">{m.reason}</p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => {
+                                    setMistakeTarget({
+                                      ayahNumber: ayah.numberInSurah,
+                                      wordIndex: m.wordIndex,
+                                      wordText: m.selectedText,
+                                      surahNumber: currentSurahNumber,
+                                      surahName: currentSurahData.name,
+                                      ayahText: cleanText,
+                                      existingMistake: m,
+                                    })
+                                  }}
+                                  className="text-stone-400 hover:text-stone-600 p-1"
+                                  title="تعديل الخطأ"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => removeMistake(m.id)}
+                                  className="text-red-400 hover:text-red-600 p-1"
+                                  title="حذف"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       {/* Ayah notes list */}
                       {ayahNotes.length > 0 && (
@@ -1438,17 +1963,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           {ayahNotes.map((n) => (
                             <div
                               key={n.id}
-                              className="flex items-start gap-2 p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs"
+                              className="flex items-start gap-2 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs"
                               dir="rtl"
                             >
-                              <StickyNote className="w-3.5 h-3.5 text-violet-500 shrink-0 mt-0.5" />
+                              <StickyNote className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
                               <div className="flex-1 space-y-1">
                                 {n.selectedText && (
-                                  <span className="inline-block text-[11px] font-quran-amiri font-bold text-amber-800 dark:text-amber-200 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-md">
+                                  <span className="inline-block text-[11px] font-quran-amiri font-bold text-blue-800 dark:text-blue-200 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded-md">
                                     « {n.selectedText} »
                                   </span>
                                 )}
-                                <p className="leading-relaxed text-violet-800 dark:text-violet-300">{n.text}</p>
+                                <p className="leading-relaxed text-blue-800 dark:text-blue-300">{n.text}</p>
                               </div>
                               <button
                                 onClick={() => removeNote(n.id)}
@@ -1521,7 +2046,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border ${themeConfig.border} space-y-3`} dir="rtl">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2">
-                  <StickyNote className="w-4 h-4 text-violet-500" />
+                  <StickyNote className="w-4 h-4 text-blue-500" />
                   ملاحظاتي
                 </h3>
                 <div className="flex items-center gap-1">
@@ -1542,7 +2067,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   {currentSurahNotes.map((n) => (
                     <div
                       key={n.id}
-                      className="p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs space-y-1"
+                      className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs space-y-1"
                     >
                       <div className="flex items-center justify-between font-bold opacity-75">
                         <span>الآية {toArabicDigits(n.ayahNumber)}</span>
@@ -1554,11 +2079,85 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                         </button>
                       </div>
                       {n.selectedText && (
-                        <div className="text-[11px] font-quran-amiri font-bold text-amber-800 dark:text-amber-200 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded truncate">
+                        <div className="text-[11px] font-quran-amiri font-bold text-blue-800 dark:text-blue-200 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded truncate">
                           « {n.selectedText} »
                         </div>
                       )}
-                      <p className="leading-relaxed text-violet-900 dark:text-violet-200">{n.text}</p>
+                      <p className="leading-relaxed text-blue-900 dark:text-blue-200">{n.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Mistakes sidebar panel ── */}
+        {showMistakesSidebar && (
+          <div className="w-64 sm:w-72 shrink-0 sticky top-4">
+            <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border border-red-500/30 space-y-3 shadow-lg`} dir="rtl">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-sm flex items-center gap-2 text-red-600 dark:text-red-400">
+                  <AlertTriangle className="w-4 h-4 text-red-500" />
+                  سجل أخطاء التلاوة
+                </h3>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-700 dark:text-red-300 font-bold font-mono">
+                    {currentSurahMistakes.length}
+                  </span>
+                  <button
+                    onClick={() => setShowMistakesSidebar(false)}
+                    className="p-1 rounded-lg hover:bg-current/10 opacity-60 hover:opacity-100"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {currentSurahMistakes.length === 0 ? (
+                <div className="text-center py-6 space-y-1">
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">لا توجد أخطاء مسجلة لهذه السورة 🎉</p>
+                  <p className="text-[11px] opacity-60">حفظك وتلاوتك متقنة ما شاء الله!</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+                  {currentSurahMistakes.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition-all ${
+                        m.corrected
+                          ? 'bg-emerald-500/10 border-emerald-500/25'
+                          : 'bg-red-500/10 border-red-500/25'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-bold">
+                        <span className="text-[11px] opacity-75">الآية {toArabicDigits(m.ayahNumber)}</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => toggleMistakeCorrected(m.id)}
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-bold transition-colors ${
+                              m.corrected
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-red-500/20 text-red-700 dark:text-red-300'
+                            }`}
+                          >
+                            {m.corrected ? 'متقن ✓' : 'مراجعة ⚠️'}
+                          </button>
+                          <button
+                            onClick={() => removeMistake(m.id)}
+                            className="text-red-400 hover:text-red-600 p-0.5"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      {m.selectedText && (
+                        <div className="text-[11px] font-quran-amiri font-bold text-red-900 dark:text-red-200 bg-red-500/15 border border-red-500/30 px-1.5 py-0.5 rounded truncate">
+                          « {m.selectedText} »
+                        </div>
+                      )}
+                      <p className="leading-relaxed text-stone-800 dark:text-stone-200 text-[11px]">{m.reason}</p>
                     </div>
                   ))}
                 </div>
@@ -1628,7 +2227,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           themeConfig={themeConfig}
           isPlaying={isPlaying && playingAyahNumber === ayahPopup.ayahNum}
           isSelectionMode={isSelectionMode}
+          isMistakeMode={isMistakeMode}
           hasNote={getAyahNotes(ayahPopup.surahNum, ayahPopup.ayahNum).length > 0}
+          hasMistake={getAyahMistakes(ayahPopup.surahNum, ayahPopup.ayahNum).length > 0}
           onPlay={() => {
             if (isPlaying && playingAyahNumber === ayahPopup.ayahNum) {
               pauseAudio()
@@ -1644,6 +2245,16 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             setNoteTarget({
               ayahNumber: ayahPopup.ayahNum,
               surahNumber: ayahPopup.surahNum,
+              surahName: ayahPopup.surahName,
+              ayahText: ayahPopup.ayahText,
+            })
+          }
+          onMistake={() =>
+            setMistakeTarget({
+              ayahNumber: ayahPopup.ayahNum,
+              surahNumber: ayahPopup.surahNum,
+              surahName: ayahPopup.surahName,
+              ayahText: ayahPopup.ayahText,
             })
           }
           onSelect={() => toggleAyahSelected(ayahPopup.ayahNum)}
@@ -1662,23 +2273,83 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
       {/* ── NOTE DIALOG ── */}
       {noteTarget && (() => {
         const targetSurah = noteTarget.surahNumber || currentSurahNumber
+        const targetSurahName =
+          noteTarget.surahName ||
+          (targetSurah === currentSurahNumber ? currentSurahData?.name : `سورة ${targetSurah}`) ||
+          'سورة'
         const existing =
           noteTarget.wordIndex !== undefined
-            ? getWordNote(targetSurah, noteTarget.ayahNumber, noteTarget.wordIndex)
-            : getAyahNotes(targetSurah, noteTarget.ayahNumber)[0]
+            ? getWordNote(targetSurah, noteTarget.ayahNumber, noteTarget.wordIndex, noteTarget.wordText)
+            : getWordNote(targetSurah, noteTarget.ayahNumber, undefined, noteTarget.wordText) ||
+              getAyahNotes(targetSurah, noteTarget.ayahNumber)[0]
+
         return (
           <NoteDialog
+            surahNumber={targetSurah}
+            surahName={targetSurahName}
             ayahNumber={noteTarget.ayahNumber}
+            ayahText={noteTarget.ayahText || ''}
             wordIndex={noteTarget.wordIndex}
             wordText={noteTarget.wordText}
             existingNote={existing?.text}
             themeConfig={themeConfig}
             onSave={(text) => {
               if (existing) removeNote(existing.id)
-              addNote(targetSurah, noteTarget.ayahNumber, text, noteTarget.wordIndex, noteTarget.wordText)
+              addNote(
+                targetSurah,
+                noteTarget.ayahNumber,
+                text,
+                noteTarget.wordIndex,
+                noteTarget.wordText,
+                targetSurahName,
+                noteTarget.ayahText
+              )
             }}
             onDelete={existing ? () => removeNote(existing.id) : undefined}
             onClose={() => setNoteTarget(null)}
+          />
+        )
+      })()}
+
+      {/* ── MISTAKE DIALOG ── */}
+      {mistakeTarget && (() => {
+        const targetSurah = mistakeTarget.surahNumber || currentSurahNumber
+        const targetSurahName =
+          mistakeTarget.surahName ||
+          (targetSurah === currentSurahNumber ? currentSurahData?.name : `سورة ${targetSurah}`) ||
+          'سورة'
+        const existing =
+          mistakeTarget.existingMistake ||
+          (mistakeTarget.wordIndex !== undefined
+            ? getWordMistake(targetSurah, mistakeTarget.ayahNumber, mistakeTarget.wordIndex, mistakeTarget.wordText)
+            : getWordMistake(targetSurah, mistakeTarget.ayahNumber, undefined, mistakeTarget.wordText) ||
+              getAyahMistakes(targetSurah, mistakeTarget.ayahNumber)[0])
+
+        return (
+          <MistakeDialog
+            surahNumber={targetSurah}
+            surahName={targetSurahName}
+            ayahNumber={mistakeTarget.ayahNumber}
+            ayahText={mistakeTarget.ayahText || ''}
+            wordText={mistakeTarget.wordText}
+            existingMistake={existing}
+            themeConfig={themeConfig}
+            onSave={(reason, category) => {
+              if (existing) {
+                updateMistake(existing.id, reason, category)
+              } else {
+                addMistake(targetSurah, mistakeTarget.ayahNumber, reason, {
+                  surahName: targetSurahName,
+                  ayahText: mistakeTarget.ayahText,
+                  wordIndex: mistakeTarget.wordIndex,
+                  selectedText: mistakeTarget.wordText,
+                  category,
+                })
+              }
+            }}
+            onDelete={existing ? () => removeMistake(existing.id) : undefined}
+            onToggleCorrected={existing ? () => toggleMistakeCorrected(existing.id) : undefined}
+            onClose={() => setMistakeTarget(null)}
           />
         )
       })()}
@@ -1700,7 +2371,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
               aiModalTarget.ayahNumber,
               text,
               undefined,
-              aiModalTarget.wordText
+              aiModalTarget.wordText,
+              aiModalTarget.surahName,
+              aiModalTarget.ayahText
             )
           }}
         />
@@ -1733,26 +2406,59 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           <div className="flex items-center gap-1 text-[11px] font-quran-amiri text-amber-800 dark:text-amber-200 border-l border-current/15 pl-2 max-w-[120px] truncate">
             « {selectedTextPart.text} »
           </div>
+
+          {/* Record Mistake on selection (Red button) */}
+          <button
+            onClick={() => {
+              setMistakeTarget({
+                ayahNumber: selectedTextPart.ayahNumber || 1,
+                wordText: selectedTextPart.text,
+                surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
+                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+                ayahText:
+                  currentSurahData?.ayahs.find(
+                    (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
+                  )?.text || selectedTextPart.text,
+              })
+              setSelectedTextPart(null)
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-700 dark:text-red-300 transition-colors"
+            title="تسجيل خطأ على الجزء المختار"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+            <span>تسجيل خطأ</span>
+          </button>
+
+          {/* Note on selection (Blue button) */}
           <button
             onClick={() => {
               setNoteTarget({
                 ayahNumber: selectedTextPart.ayahNumber || 1,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
+                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+                ayahText:
+                  currentSurahData?.ayahs.find(
+                    (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
+                  )?.text || selectedTextPart.text,
               })
               setSelectedTextPart(null)
             }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-700 dark:text-violet-300 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 transition-colors"
             title="إضافة ملاحظة على الجزء المختار"
           >
-            <StickyNote className="w-3.5 h-3.5 text-violet-500" />
+            <StickyNote className="w-3.5 h-3.5 text-blue-500" />
             <span>ملاحظة</span>
           </button>
+
           <button
             onClick={() => {
               setAiModalTarget({
                 ayahNumber: selectedTextPart.ayahNumber || 1,
-                ayahText: selectedTextPart.text,
+                ayahText:
+                  currentSurahData?.ayahs.find(
+                    (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
+                  )?.text || selectedTextPart.text,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
                 surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
@@ -1765,6 +2471,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             <Bot className="w-3.5 h-3.5 text-purple-500" />
             <span>اسأل AI</span>
           </button>
+
           <button
             onClick={() => {
               playAyah(selectedTextPart.ayahNumber || 1, selectedTextPart.surahNumber || currentSurahNumber)
@@ -1776,6 +2483,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             <Headphones className="w-3.5 h-3.5 text-emerald-500" />
             <span>استماع</span>
           </button>
+
           <button
             onClick={() => {
               navigator.clipboard.writeText(selectedTextPart.text)
@@ -1786,6 +2494,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           >
             <Copy className="w-3.5 h-3.5" />
           </button>
+
           <button
             onClick={() => setSelectedTextPart(null)}
             className="p-1 rounded-lg hover:bg-current/10 opacity-60 hover:opacity-100"

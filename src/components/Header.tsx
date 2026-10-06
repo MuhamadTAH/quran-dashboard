@@ -4,6 +4,7 @@ import {
   Sparkles,
   Bookmark,
   Settings,
+  Bell,
   Search,
   Sun,
   Moon,
@@ -210,6 +211,15 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings }) => {
               </div>
             )}
           </div>
+
+          {/* Notifications Button */}
+          <button
+            onClick={onOpenSettings}
+            className="p-2 rounded-xl bg-black/15 dark:bg-white/10 hover:bg-white/20 transition-all text-amber-500"
+            title="إشعارات وتنبيهات الهاتف والحاسوب"
+          >
+            <Bell className="w-4 h-4" />
+          </button>
 
           {/* Advanced Settings Modal trigger */}
           <button
