@@ -26,7 +26,7 @@ import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
 import type { FontFamily, LineSpacing, PageData, MistakeCategory, QuranMistake } from '../types/quran'
 import { tokenizeAyah, getSurahRareStats } from '../services/wordFrequencyService'
-import { cleanAyahText, fetchPage } from '../services/quranService'
+import { cleanAyahText, fetchPage, stripAllTashkeel } from '../services/quranService'
 import { AiAskModal } from './AiAskModal'
 
 // ─── Arabic Numerals Helper ──────────────────────────────────────────────────
@@ -611,6 +611,8 @@ const MadaniPageView: React.FC<{
                     return (
                       <span
                         key={tIdx}
+                        data-ayah-number={ayah.numberInSurah}
+                        data-surah-number={ayah.surahNumber}
                         onClick={() =>
                           onWordClick(
                             tok.cleaned,
@@ -666,6 +668,8 @@ const MadaniPageView: React.FC<{
                   return (
                     <span
                       key={tIdx}
+                      data-ayah-number={ayah.numberInSurah}
+                      data-surah-number={ayah.surahNumber}
                       onClick={() =>
                         onWordClick(
                           tok.cleaned || tok.text,
@@ -832,6 +836,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     surahNumber?: number
     surahName?: string
     ayahText?: string
+    selectedTokenIndices?: number[]
   } | null>(null)
   const [mistakeTarget, setMistakeTarget] = useState<{
     ayahNumber: number
@@ -841,14 +846,57 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     surahName?: string
     ayahText?: string
     existingMistake?: QuranMistake
+    selectedTokenIndices?: number[]
   } | null>(null)
   const [selectedAyahs, setSelectedAyahs] = useState<Set<number>>(new Set())
+
+  // ── 5-Pages Window state (readingMode === 'scroll_pages') ─────────────────
+  const startWindowPage = Math.max(1, Math.min(600, currentPageNumber - 2))
+  const windowPageNumbers = useMemo(() => {
+    return [
+      startWindowPage,
+      startWindowPage + 1,
+      startWindowPage + 2,
+      startWindowPage + 3,
+      startWindowPage + 4,
+    ].filter((p) => p <= 604)
+  }, [startWindowPage])
+
+  const [windowPages, setWindowPages] = useState<PageData[]>([])
+  const [isLoadingWindowPages, setIsLoadingWindowPages] = useState<boolean>(false)
+
+  useEffect(() => {
+    if (readingMode !== 'scroll_pages') return
+    let active = true
+    setIsLoadingWindowPages(true)
+
+    Promise.all(windowPageNumbers.map((p) => fetchPage(p)))
+      .then((pages) => {
+        if (active) {
+          setWindowPages(pages)
+          setIsLoadingWindowPages(false)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          console.error('Failed to load window pages:', err)
+          setIsLoadingWindowPages(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [windowPageNumbers, readingMode])
 
   // Floating text selection state
   const [selectedTextPart, setSelectedTextPart] = useState<{
     text: string
     ayahNumber?: number
     surahNumber?: number
+    surahName?: string
+    ayahText?: string
+    selectedTokenIndices?: number[]
     rect?: { top: number; left: number }
   } | null>(null)
 
@@ -857,39 +905,150 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
       const sel = window.getSelection()
       if (!sel || sel.isCollapsed) return
       const text = sel.toString().trim()
-      if (text.length > 0) {
-        const anchorNode = sel.anchorNode
-        const el = anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement
-        const ayahSpan = el?.closest('[id^="ayah-"]')
-        let aNum = 1
-        let sNum = currentSurahNumber
-        if (ayahSpan && ayahSpan.id) {
-          const parts = ayahSpan.id.replace('ayah-', '').split('-').map(Number)
-          if (parts.length === 2) {
-            sNum = parts[0]
-            aNum = parts[1]
-          } else if (parts.length === 1) {
-            aNum = parts[0]
+      if (!text || text.length === 0) return
+
+      let sNum = currentSurahNumber
+      let aNum: number | undefined = undefined
+
+      // 1. Try to find ayah container from Selection nodes
+      try {
+        const range = sel.getRangeAt(0)
+        const candidateNodes = [
+          range.startContainer,
+          range.endContainer,
+          sel.anchorNode,
+          sel.focusNode,
+          range.commonAncestorContainer,
+        ]
+
+        for (const node of candidateNodes) {
+          if (!node) continue
+          const el = node instanceof HTMLElement ? node : node.parentElement
+          if (!el) continue
+
+          const ayahEl = el.closest('[id^="ayah-"]') || el.closest('[data-ayah-number]')
+          if (ayahEl) {
+            const dataA = ayahEl.getAttribute('data-ayah-number')
+            const dataS = ayahEl.getAttribute('data-surah-number')
+            if (dataA) aNum = parseInt(dataA, 10)
+            if (dataS) sNum = parseInt(dataS, 10)
+
+            if (!aNum && ayahEl.id) {
+              const parts = ayahEl.id.replace('ayah-', '').split('-').map(Number)
+              if (parts.length === 2) {
+                sNum = parts[0]
+                aNum = parts[1]
+              } else if (parts.length === 1) {
+                aNum = parts[0]
+              }
+            }
+            if (aNum) break
           }
         }
-        try {
-          const range = sel.getRangeAt(0)
-          const rect = range.getBoundingClientRect()
-          setSelectedTextPart({
-            text,
-            ayahNumber: aNum,
-            surahNumber: sNum,
-            rect: { top: rect.top, left: rect.left + rect.width / 2 },
+      } catch {}
+
+      // 2. Fallback: Search all ayahs on current page, window pages, or current surah for this text!
+      const candidatePageAyahs =
+        singlePageData?.ayahs ||
+        (windowPages.length > 0 ? windowPages.flatMap((p) => p.ayahs) : undefined)
+
+      if (!aNum) {
+        const cleanSearch = stripAllTashkeel(text)
+        if (candidatePageAyahs) {
+          const found = candidatePageAyahs.find((a) => {
+            const cleanAyah = stripAllTashkeel(a.text)
+            return cleanAyah.includes(cleanSearch)
           })
-        } catch {
-          setSelectedTextPart({
-            text,
-            ayahNumber: aNum,
-            surahNumber: sNum,
+          if (found) {
+            sNum = found.surahNumber
+            aNum = found.numberInSurah
+          }
+        }
+        if (!aNum && currentSurahData?.ayahs) {
+          const found = currentSurahData.ayahs.find((a) => {
+            const cleanAyah = stripAllTashkeel(a.text)
+            return cleanAyah.includes(cleanSearch)
           })
+          if (found) {
+            sNum = currentSurahNumber
+            aNum = found.numberInSurah
+          }
         }
       }
-    }, 20)
+
+      if (!aNum) aNum = 1
+
+      // 3. Find accurate surahName and full ayah text
+      let surahName = currentSurahData?.name || `سورة ${sNum}`
+      let fullAyahText = text
+
+      if (candidatePageAyahs) {
+        const matched = candidatePageAyahs.find(
+          (a) => a.surahNumber === sNum && a.numberInSurah === aNum
+        )
+        if (matched) {
+          fullAyahText = cleanAyahText(matched.surahNumber, matched.numberInSurah, matched.text)
+          surahName =
+            matched.surahName ||
+            singlePageData?.surahs.find((s) => s.number === sNum)?.name ||
+            windowPages.flatMap((p) => p.surahs).find((s) => s.number === sNum)?.name ||
+            surahName
+        }
+      } else if (currentSurahData && currentSurahNumber === sNum) {
+        const matched = currentSurahData.ayahs.find((a) => a.numberInSurah === aNum)
+        if (matched) {
+          fullAyahText = cleanAyahText(sNum, matched.numberInSurah, matched.text)
+          surahName = currentSurahData.name
+        }
+      }
+
+      // Compute selected token indices in this ayah
+      let selectedTokenIndices: number[] | undefined = undefined
+      if (fullAyahText) {
+        const tokens = tokenizeAyah(fullAyahText, rareWordThreshold)
+        const cleanSel = stripAllTashkeel(text)
+        const cleanWords = cleanSel.split(/\s+/).filter(Boolean)
+        const indices: number[] = []
+        tokens.forEach((tok, idx) => {
+          if (!tok.isWord) return
+          const cleanTok = stripAllTashkeel(tok.cleaned || tok.text)
+          if (
+            cleanSel === cleanTok ||
+            cleanWords.includes(cleanTok) ||
+            cleanSel.includes(cleanTok) ||
+            cleanTok.includes(cleanSel)
+          ) {
+            indices.push(idx)
+          }
+        })
+        if (indices.length > 0) {
+          selectedTokenIndices = indices
+        }
+      }
+
+      try {
+        const range = sel.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        setSelectedTextPart({
+          text,
+          ayahNumber: aNum,
+          surahNumber: sNum,
+          surahName,
+          ayahText: fullAyahText,
+          selectedTokenIndices,
+          rect: { top: rect.top, left: rect.left + rect.width / 2 },
+        })
+      } catch {
+        setSelectedTextPart({
+          text,
+          ayahNumber: aNum,
+          surahNumber: sNum,
+          surahName,
+          ayahText: fullAyahText,
+          selectedTokenIndices,
+        })
+      }
+    }, 30)
   }
 
   // Ayah action popup
@@ -953,45 +1112,6 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [readingMode, currentPageNumber, goToPage])
-
-  // ── 5-Pages Window state (readingMode === 'scroll_pages') ─────────────────
-  const startWindowPage = Math.max(1, Math.min(600, currentPageNumber - 2))
-  const windowPageNumbers = useMemo(() => {
-    return [
-      startWindowPage,
-      startWindowPage + 1,
-      startWindowPage + 2,
-      startWindowPage + 3,
-      startWindowPage + 4,
-    ].filter((p) => p <= 604)
-  }, [startWindowPage])
-
-  const [windowPages, setWindowPages] = useState<PageData[]>([])
-  const [isLoadingWindowPages, setIsLoadingWindowPages] = useState<boolean>(false)
-
-  useEffect(() => {
-    if (readingMode !== 'scroll_pages') return
-    let active = true
-    setIsLoadingWindowPages(true)
-
-    Promise.all(windowPageNumbers.map((p) => fetchPage(p)))
-      .then((pages) => {
-        if (active) {
-          setWindowPages(pages)
-          setIsLoadingWindowPages(false)
-        }
-      })
-      .catch((err) => {
-        if (active) {
-          console.error('Failed to load window pages:', err)
-          setIsLoadingWindowPages(false)
-        }
-      })
-
-    return () => {
-      active = false
-    }
-  }, [windowPageNumbers, readingMode])
 
   // Smooth IntersectionObserver to update currentPageNumber without scroll jumping
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -1057,6 +1177,25 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     navigator.clipboard.writeText(text)
     setCopiedAyah(ayahNum)
     setTimeout(() => setCopiedAyah(null), 2000)
+  }
+
+  const scrollToTargetAyah = (surahNum: number, ayahNum: number) => {
+    if (readingMode === 'verse' || readingMode === 'mushaf') {
+      if (surahNum !== currentSurahNumber) {
+        loadSurah(surahNum)
+      }
+      setTimeout(() => {
+        const el = document.getElementById(`ayah-${ayahNum}`)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 400)
+    } else {
+      const el =
+        document.getElementById(`ayah-${surahNum}-${ayahNum}`) ||
+        document.getElementById(`ayah-${ayahNum}`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
   }
 
   const handleNextSurah = () => {
@@ -1213,6 +1352,12 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
 
   const currentSurahNotes = notes.filter((n) => n.surahNumber === currentSurahNumber)
   const currentSurahMistakes = mistakes.filter((m) => m.surahNumber === currentSurahNumber)
+
+  const [mistakeListFilter, setMistakeListFilter] = useState<'surah' | 'all'>('surah')
+  const [noteListFilter, setNoteListFilter] = useState<'surah' | 'all'>('surah')
+
+  const displayedMistakes = mistakeListFilter === 'surah' ? currentSurahMistakes : mistakes
+  const displayedNotes = noteListFilter === 'surah' ? currentSurahNotes : notes
 
   // ── Loading & Error Fallbacks ─────────────────────────────────────────────
   if (isLoadingSurah && !currentSurahData && readingMode === 'verse') {
@@ -1760,6 +1905,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                             return (
                               <span
                                 key={idx}
+                                data-ayah-number={ayah.numberInSurah}
+                                data-surah-number={currentSurahNumber}
                                 onClick={() =>
                                   handleWordClick(
                                     tok.cleaned,
@@ -1815,6 +1962,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           return (
                             <span
                               key={idx}
+                              data-ayah-number={ayah.numberInSurah}
+                              data-surah-number={currentSurahNumber}
                               onClick={() =>
                                 handleWordClick(
                                   tok.cleaned || tok.text,
@@ -2042,15 +2191,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
 
         {/* ── Notes sidebar panel ── */}
         {showNotesSidebar && (
-          <div className="w-56 shrink-0 sticky top-4">
-            <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border ${themeConfig.border} space-y-3`} dir="rtl">
+          <div className="w-64 sm:w-80 shrink-0 sticky top-4">
+            <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border ${themeConfig.border} space-y-3 shadow-lg`} dir="rtl">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2">
                   <StickyNote className="w-4 h-4 text-blue-500" />
-                  ملاحظاتي
+                  ملاحظاتي والتدبر
                 </h3>
                 <div className="flex items-center gap-1">
-                  <span className="text-xs opacity-60">{currentSurahNotes.length}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 font-bold font-mono">
+                    {displayedNotes.length}
+                  </span>
                   <button
                     onClick={() => setShowNotesSidebar(false)}
                     className="p-1 rounded-lg hover:bg-current/10 opacity-60 hover:opacity-100"
@@ -2060,26 +2211,82 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 </div>
               </div>
 
-              {currentSurahNotes.length === 0 ? (
-                <p className="text-xs opacity-50 text-center py-4">لا توجد ملاحظات لهذه السورة</p>
+              {/* Tabs: Surah vs All */}
+              <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-bold">
+                <button
+                  onClick={() => setNoteListFilter('surah')}
+                  className={`flex-1 py-1 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                    noteListFilter === 'surah'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'opacity-70 hover:opacity-100 hover:bg-current/5'
+                  }`}
+                >
+                  <span>السورة</span>
+                  <span className="text-[10px] opacity-80">({currentSurahNotes.length})</span>
+                </button>
+                <button
+                  onClick={() => setNoteListFilter('all')}
+                  className={`flex-1 py-1 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                    noteListFilter === 'all'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'opacity-70 hover:opacity-100 hover:bg-current/5'
+                  }`}
+                >
+                  <span>الكل</span>
+                  <span className="text-[10px] opacity-80">({notes.length})</span>
+                </button>
+              </div>
+
+              {displayedNotes.length === 0 ? (
+                <div className="text-center py-6 space-y-2">
+                  <p className="text-xs opacity-60">
+                    {noteListFilter === 'surah'
+                      ? 'لا توجد ملاحظات لهذه السورة'
+                      : 'لا توجد أي ملاحظات مسجلة بعد'}
+                  </p>
+                  {noteListFilter === 'surah' && notes.length > 0 && (
+                    <button
+                      onClick={() => setNoteListFilter('all')}
+                      className="text-[11px] text-blue-600 dark:text-blue-400 underline font-semibold hover:opacity-80"
+                    >
+                      لديك {notes.length} ملاحظات في سور أخرى (اضغط للعرض)
+                    </button>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {currentSurahNotes.map((n) => (
+                  {displayedNotes.map((n) => (
                     <div
                       key={n.id}
                       className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs space-y-1"
                     >
-                      <div className="flex items-center justify-between font-bold opacity-75">
-                        <span>الآية {toArabicDigits(n.ayahNumber)}</span>
+                      <div className="flex items-center justify-between font-bold opacity-80">
+                        <div
+                          onClick={() => scrollToTargetAyah(n.surahNumber, n.ayahNumber)}
+                          className="flex items-center gap-1.5 cursor-pointer hover:opacity-80"
+                          title="الانتقال إلى موضع الآية"
+                        >
+                          {noteListFilter === 'all' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-800 dark:text-blue-300 font-semibold">
+                              {n.surahName || `سورة ${n.surahNumber}`}
+                            </span>
+                          )}
+                          <span>الآية {toArabicDigits(n.ayahNumber)}</span>
+                        </div>
                         <button
                           onClick={() => removeNote(n.id)}
-                          className="text-red-400 hover:text-red-600"
+                          className="text-red-400 hover:text-red-600 p-0.5"
+                          title="حذف الملاحظة"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                       {n.selectedText && (
-                        <div className="text-[11px] font-quran-amiri font-bold text-blue-800 dark:text-blue-200 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded truncate">
+                        <div
+                          onClick={() => scrollToTargetAyah(n.surahNumber, n.ayahNumber)}
+                          className="text-[11px] font-quran-amiri font-bold text-blue-800 dark:text-blue-200 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-blue-500/25"
+                          title="الانتقال إلى موضع الملاحظة"
+                        >
                           « {n.selectedText} »
                         </div>
                       )}
@@ -2094,7 +2301,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
 
         {/* ── Mistakes sidebar panel ── */}
         {showMistakesSidebar && (
-          <div className="w-64 sm:w-72 shrink-0 sticky top-4">
+          <div className="w-64 sm:w-80 shrink-0 sticky top-4">
             <div className={`p-4 rounded-2xl ${themeConfig.bgCard} border border-red-500/30 space-y-3 shadow-lg`} dir="rtl">
               <div className="flex items-center justify-between">
                 <h3 className="font-bold text-sm flex items-center gap-2 text-red-600 dark:text-red-400">
@@ -2103,7 +2310,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 </h3>
                 <div className="flex items-center gap-1">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-700 dark:text-red-300 font-bold font-mono">
-                    {currentSurahMistakes.length}
+                    {displayedMistakes.length}
                   </span>
                   <button
                     onClick={() => setShowMistakesSidebar(false)}
@@ -2114,14 +2321,52 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 </div>
               </div>
 
-              {currentSurahMistakes.length === 0 ? (
-                <div className="text-center py-6 space-y-1">
-                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">لا توجد أخطاء مسجلة لهذه السورة 🎉</p>
+              {/* Filter Tabs: Current Surah vs All */}
+              <div className="flex gap-1 p-1 bg-black/5 dark:bg-white/5 rounded-xl text-xs font-bold">
+                <button
+                  onClick={() => setMistakeListFilter('surah')}
+                  className={`flex-1 py-1 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                    mistakeListFilter === 'surah'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : 'opacity-70 hover:opacity-100 hover:bg-current/5'
+                  }`}
+                >
+                  <span>السورة الحالية</span>
+                  <span className="text-[10px] opacity-80">({currentSurahMistakes.length})</span>
+                </button>
+                <button
+                  onClick={() => setMistakeListFilter('all')}
+                  className={`flex-1 py-1 px-2 rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                    mistakeListFilter === 'all'
+                      ? 'bg-red-600 text-white shadow-sm'
+                      : 'opacity-70 hover:opacity-100 hover:bg-current/5'
+                  }`}
+                >
+                  <span>الكل</span>
+                  <span className="text-[10px] opacity-80">({mistakes.length})</span>
+                </button>
+              </div>
+
+              {displayedMistakes.length === 0 ? (
+                <div className="text-center py-6 space-y-2">
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    {mistakeListFilter === 'surah'
+                      ? 'لا توجد أخطاء مسجلة لهذه السورة 🎉'
+                      : 'لا توجد أي أخطاء مسجلة بعد 🎉'}
+                  </p>
                   <p className="text-[11px] opacity-60">حفظك وتلاوتك متقنة ما شاء الله!</p>
+                  {mistakeListFilter === 'surah' && mistakes.length > 0 && (
+                    <button
+                      onClick={() => setMistakeListFilter('all')}
+                      className="text-[11px] text-amber-600 dark:text-amber-400 underline font-semibold hover:opacity-80 block mx-auto pt-1"
+                    >
+                      لديك {mistakes.length} أخطاء في سور أخرى (اضغط للعرض)
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-                  {currentSurahMistakes.map((m) => (
+                  {displayedMistakes.map((m) => (
                     <div
                       key={m.id}
                       className={`p-2.5 rounded-xl border text-xs space-y-1.5 transition-all ${
@@ -2131,7 +2376,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                       }`}
                     >
                       <div className="flex items-center justify-between font-bold">
-                        <span className="text-[11px] opacity-75">الآية {toArabicDigits(m.ayahNumber)}</span>
+                        <div
+                          onClick={() => scrollToTargetAyah(m.surahNumber, m.ayahNumber)}
+                          className="flex items-center gap-1.5 flex-wrap cursor-pointer hover:opacity-80"
+                          title="الانتقال إلى موضع الآية"
+                        >
+                          {mistakeListFilter === 'all' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 font-semibold">
+                              {m.surahName || `سورة ${m.surahNumber}`}
+                            </span>
+                          )}
+                          <span className="text-[11px] opacity-75">الآية {toArabicDigits(m.ayahNumber)}</span>
+                        </div>
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => toggleMistakeCorrected(m.id)}
@@ -2146,18 +2402,39 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                           <button
                             onClick={() => removeMistake(m.id)}
                             className="text-red-400 hover:text-red-600 p-0.5"
-                            title="حذف"
+                            title="حذف الخطأ"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
                       {m.selectedText && (
-                        <div className="text-[11px] font-quran-amiri font-bold text-red-900 dark:text-red-200 bg-red-500/15 border border-red-500/30 px-1.5 py-0.5 rounded truncate">
+                        <div
+                          onClick={() => scrollToTargetAyah(m.surahNumber, m.ayahNumber)}
+                          className="text-[11px] font-quran-amiri font-bold text-red-900 dark:text-red-200 bg-red-500/15 border border-red-500/30 px-1.5 py-0.5 rounded truncate cursor-pointer hover:bg-red-500/25"
+                          title="الانتقال إلى موضع الخطأ"
+                        >
                           « {m.selectedText} »
                         </div>
                       )}
-                      <p className="leading-relaxed text-stone-800 dark:text-stone-200 text-[11px]">{m.reason}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-stone-500/15 font-semibold opacity-75">
+                          {m.category === 'memory'
+                            ? '🧠 نسيان'
+                            : m.category === 'mutashabih'
+                            ? '🔄 متشابهات'
+                            : m.category === 'harakah'
+                            ? '✍️ تشكيل'
+                            : m.category === 'letter'
+                            ? '🔤 حرف'
+                            : m.category === 'word'
+                            ? '📖 كلمة'
+                            : m.category === 'tajweed'
+                            ? '🎙️ تجويد'
+                            : '⚡ أخرى'}
+                        </span>
+                        <p className="leading-relaxed text-stone-800 dark:text-stone-200 text-[11px] flex-1">{m.reason}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2280,8 +2557,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         const existing =
           noteTarget.wordIndex !== undefined
             ? getWordNote(targetSurah, noteTarget.ayahNumber, noteTarget.wordIndex, noteTarget.wordText)
-            : getWordNote(targetSurah, noteTarget.ayahNumber, undefined, noteTarget.wordText) ||
-              getAyahNotes(targetSurah, noteTarget.ayahNumber)[0]
+            : noteTarget.wordText
+            ? getWordNote(targetSurah, noteTarget.ayahNumber, undefined, noteTarget.wordText)
+            : getAyahNotes(targetSurah, noteTarget.ayahNumber)[0]
 
         return (
           <NoteDialog
@@ -2302,7 +2580,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 noteTarget.wordIndex,
                 noteTarget.wordText,
                 targetSurahName,
-                noteTarget.ayahText
+                noteTarget.ayahText,
+                noteTarget.selectedTokenIndices
               )
             }}
             onDelete={existing ? () => removeNote(existing.id) : undefined}
@@ -2322,8 +2601,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           mistakeTarget.existingMistake ||
           (mistakeTarget.wordIndex !== undefined
             ? getWordMistake(targetSurah, mistakeTarget.ayahNumber, mistakeTarget.wordIndex, mistakeTarget.wordText)
-            : getWordMistake(targetSurah, mistakeTarget.ayahNumber, undefined, mistakeTarget.wordText) ||
-              getAyahMistakes(targetSurah, mistakeTarget.ayahNumber)[0])
+            : mistakeTarget.wordText
+            ? getWordMistake(targetSurah, mistakeTarget.ayahNumber, undefined, mistakeTarget.wordText)
+            : getAyahMistakes(targetSurah, mistakeTarget.ayahNumber)[0])
 
         return (
           <MistakeDialog
@@ -2336,7 +2616,11 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             themeConfig={themeConfig}
             onSave={(reason, category) => {
               if (existing) {
-                updateMistake(existing.id, reason, category)
+                updateMistake(existing.id, reason, category, {
+                  selectedText: mistakeTarget.wordText,
+                  wordIndex: mistakeTarget.wordIndex,
+                  selectedTokenIndices: mistakeTarget.selectedTokenIndices,
+                })
               } else {
                 addMistake(targetSurah, mistakeTarget.ayahNumber, reason, {
                   surahName: targetSurahName,
@@ -2344,6 +2628,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                   wordIndex: mistakeTarget.wordIndex,
                   selectedText: mistakeTarget.wordText,
                   category,
+                  selectedTokenIndices: mistakeTarget.selectedTokenIndices,
                 })
               }
             }}
@@ -2414,11 +2699,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 ayahNumber: selectedTextPart.ayahNumber || 1,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
-                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+                surahName:
+                  selectedTextPart.surahName ||
+                  currentSurahData?.name ||
+                  `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
                 ayahText:
+                  selectedTextPart.ayahText ||
                   currentSurahData?.ayahs.find(
                     (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
-                  )?.text || selectedTextPart.text,
+                  )?.text ||
+                  selectedTextPart.text,
+                selectedTokenIndices: selectedTextPart.selectedTokenIndices,
               })
               setSelectedTextPart(null)
             }}
@@ -2436,11 +2727,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                 ayahNumber: selectedTextPart.ayahNumber || 1,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
-                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+                surahName:
+                  selectedTextPart.surahName ||
+                  currentSurahData?.name ||
+                  `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
                 ayahText:
+                  selectedTextPart.ayahText ||
                   currentSurahData?.ayahs.find(
                     (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
-                  )?.text || selectedTextPart.text,
+                  )?.text ||
+                  selectedTextPart.text,
+                selectedTokenIndices: selectedTextPart.selectedTokenIndices,
               })
               setSelectedTextPart(null)
             }}
@@ -2456,12 +2753,17 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
               setAiModalTarget({
                 ayahNumber: selectedTextPart.ayahNumber || 1,
                 ayahText:
+                  selectedTextPart.ayahText ||
                   currentSurahData?.ayahs.find(
                     (a) => a.numberInSurah === (selectedTextPart.ayahNumber || 1)
-                  )?.text || selectedTextPart.text,
+                  )?.text ||
+                  selectedTextPart.text,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
-                surahName: currentSurahData?.name || `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
+                surahName:
+                  selectedTextPart.surahName ||
+                  currentSurahData?.name ||
+                  `سورة ${selectedTextPart.surahNumber || currentSurahNumber}`,
               })
               setSelectedTextPart(null)
             }}

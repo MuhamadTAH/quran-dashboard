@@ -112,6 +112,7 @@ export interface QuranMistake {
   ayahText?: string
   wordIndex?: number
   selectedText?: string // word, letter, sentence, or ayah
+  selectedTokenIndices?: number[] // indices of words/tokens inside the ayah
   reason: string        // why the reciter made a mistake on it
   category?: MistakeCategory
   timestamp: number

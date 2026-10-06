@@ -207,6 +207,40 @@ export function normalizeArabic(text: string): string {
     .toLowerCase()
 }
 
+/**
+ * Strips all Arabic tashkeel / harakat, waqf signs, tatweel, and normalizes letters
+ * for robust fuzzy matching between user selections and token text.
+ */
+export function stripAllTashkeel(text: string): string {
+  if (!text) return ''
+  return text
+    // Remove Arabic diacritics / harakat / waqf
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED\u0640]/g, '')
+    // Normalize Alifs
+    .replace(/[أإآٱ]/g, 'ا')
+    // Normalize Ta Marbuta
+    .replace(/ة/g, 'ه')
+    // Normalize Ya and Alif Maqsura
+    .replace(/ى/g, 'ي')
+    // Remove punctuation & brackets
+    .replace(/[^\u0621-\u064A0-9\s]/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Strips Quran waqf signs, decorative symbols, and outer punctuation
+ * while strictly preserving every single letter and exact tashkeel/harakah.
+ */
+export function stripPunctuationAndWaqf(text: string): string {
+  if (!text) return ''
+  return text
+    .replace(/[\u06D6-\u06DC\u06DE-\u06E8\u06EA-\u06ED\u060E\u060F\u0615\u061B\u061E\u061F\u060C\.\,\;\(\)\[\]\{\}\<\>\"\'«»\:\!\؟\ـ\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function searchSurahs(query: string): SurahMeta[] {
   if (!query.trim()) return getSurahList()
   const qClean = normalizeArabic(query.trim())

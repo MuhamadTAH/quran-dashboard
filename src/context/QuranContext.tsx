@@ -20,6 +20,8 @@ import {
   getPageForSurah,
   getSurahForPage,
   getSurahList,
+  stripAllTashkeel,
+  stripPunctuationAndWaqf,
 } from '../services/quranService'
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
@@ -38,6 +40,7 @@ export interface QuranNote {
   ayahText?: string
   wordIndex?: number   // undefined = ayah-level note, number = word-level note
   selectedText?: string // phrase or part of ayah for this note
+  selectedTokenIndices?: number[] // indices of words/tokens inside the ayah
   text: string
   timestamp: number
 }
@@ -102,7 +105,8 @@ interface QuranContextType {
     wordIndex?: number,
     selectedText?: string,
     surahName?: string,
-    ayahText?: string
+    ayahText?: string,
+    selectedTokenIndices?: number[]
   ) => void
   removeNote: (id: string) => void
   getAyahNotes: (surahNumber: number, ayahNumber: number) => QuranNote[]
@@ -120,10 +124,20 @@ interface QuranContextType {
       wordIndex?: number
       selectedText?: string
       category?: MistakeCategory
+      selectedTokenIndices?: number[]
     }
   ) => void
   removeMistake: (id: string) => void
-  updateMistake: (id: string, reason: string, category?: MistakeCategory) => void
+  updateMistake: (
+    id: string,
+    reason: string,
+    category?: MistakeCategory,
+    options?: {
+      selectedText?: string
+      wordIndex?: number
+      selectedTokenIndices?: number[]
+    }
+  ) => void
   toggleMistakeCorrected: (id: string) => void
   getAyahMistakes: (surahNumber: number, ayahNumber: number) => QuranMistake[]
   getWordMistake: (
@@ -300,6 +314,47 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem('quran_notes', JSON.stringify(updated))
   }
 
+  // Helper to match a word/token inside a selected phrase
+  const isTokenInSelectedPhrase = (
+    tokWord: string,
+    selectedPhrase: string,
+    tokIndex?: number,
+    selectedIndices?: number[]
+  ): boolean => {
+    if (tokIndex !== undefined && selectedIndices && selectedIndices.length > 0) {
+      if (selectedIndices.includes(tokIndex)) return true
+    }
+
+    const rawTok = tokWord.trim()
+    const rawSel = selectedPhrase.trim()
+    if (!rawTok || !rawSel) return false
+
+    // 1. Exact raw match
+    if (rawSel === rawTok) return true
+
+    // 2. Strip waqf & punctuation
+    const puncTok = stripPunctuationAndWaqf(rawTok)
+    const puncSel = stripPunctuationAndWaqf(rawSel)
+    if (puncTok && puncSel) {
+      if (puncSel === puncTok) return true
+      const puncWords = puncSel.split(/\s+/).filter(Boolean)
+      if (puncWords.includes(puncTok)) return true
+      if (puncSel.includes(puncTok)) return true
+    }
+
+    // 3. Strip all tashkeel / harakat and compare normalized Arabic
+    const cleanTok = stripAllTashkeel(rawTok)
+    const cleanSel = stripAllTashkeel(rawSel)
+    if (cleanTok && cleanSel) {
+      if (cleanSel === cleanTok) return true
+      const cleanWords = cleanSel.split(/\s+/).filter(Boolean)
+      if (cleanWords.includes(cleanTok)) return true
+      if (cleanSel.includes(cleanTok) || cleanTok.includes(cleanSel)) return true
+    }
+
+    return false
+  }
+
   const addNote = (
     surahNumber: number,
     ayahNumber: number,
@@ -307,7 +362,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     wordIndex?: number,
     selectedText?: string,
     surahName?: string,
-    ayahText?: string
+    ayahText?: string,
+    selectedTokenIndices?: number[]
   ) => {
     const note: QuranNote = {
       id: `note_${surahNumber}_${ayahNumber}_${wordIndex ?? 'part'}_${Date.now()}`,
@@ -317,6 +373,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ayahText,
       wordIndex,
       selectedText,
+      selectedTokenIndices,
       text,
       timestamp: Date.now(),
     }
@@ -342,10 +399,9 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return notes.find((n) => {
       if (n.surahNumber !== surahNumber || n.ayahNumber !== ayahNumber) return false
       if (wordIndex !== undefined && n.wordIndex === wordIndex) return true
+      if (wordIndex !== undefined && n.selectedTokenIndices && n.selectedTokenIndices.includes(wordIndex)) return true
       if (wordText && n.selectedText) {
-        const cleanTok = wordText.trim()
-        const cleanSel = n.selectedText.trim()
-        return cleanSel === cleanTok || cleanSel.includes(cleanTok)
+        return isTokenInSelectedPhrase(wordText, n.selectedText, wordIndex, n.selectedTokenIndices)
       }
       return false
     })
@@ -376,6 +432,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       wordIndex?: number
       selectedText?: string
       category?: MistakeCategory
+      selectedTokenIndices?: number[]
     }
   ) => {
     const newMistake: QuranMistake = {
@@ -386,6 +443,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ayahText: options?.ayahText,
       wordIndex: options?.wordIndex,
       selectedText: options?.selectedText,
+      selectedTokenIndices: options?.selectedTokenIndices,
       reason,
       category: options?.category || 'memory',
       timestamp: Date.now(),
@@ -398,9 +456,31 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     saveMistakes(mistakes.filter((m) => m.id !== id))
   }
 
-  const updateMistake = (id: string, reason: string, category?: MistakeCategory) => {
+  const updateMistake = (
+    id: string,
+    reason: string,
+    category?: MistakeCategory,
+    options?: {
+      selectedText?: string
+      wordIndex?: number
+      selectedTokenIndices?: number[]
+    }
+  ) => {
     saveMistakes(
-      mistakes.map((m) => (m.id === id ? { ...m, reason, category: category || m.category } : m))
+      mistakes.map((m) => {
+        if (m.id !== id) return m
+        return {
+          ...m,
+          reason,
+          category: category || m.category,
+          selectedText: options?.selectedText !== undefined ? options.selectedText : m.selectedText,
+          wordIndex: options?.wordIndex !== undefined ? options.wordIndex : m.wordIndex,
+          selectedTokenIndices:
+            options?.selectedTokenIndices !== undefined
+              ? options.selectedTokenIndices
+              : m.selectedTokenIndices,
+        }
+      })
     )
   }
 
@@ -425,10 +505,9 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return mistakes.find((m) => {
       if (m.surahNumber !== surahNumber || m.ayahNumber !== ayahNumber) return false
       if (wordIndex !== undefined && m.wordIndex === wordIndex) return true
+      if (wordIndex !== undefined && m.selectedTokenIndices && m.selectedTokenIndices.includes(wordIndex)) return true
       if (wordText && m.selectedText) {
-        const cleanTok = wordText.trim()
-        const cleanSel = m.selectedText.trim()
-        return cleanSel === cleanTok || cleanSel.includes(cleanTok)
+        return isTokenInSelectedPhrase(wordText, m.selectedText, wordIndex, m.selectedTokenIndices)
       }
       return false
     })
