@@ -1,6 +1,6 @@
 import surahsList from '../data/surahs.json'
 import preloadedSurahs from '../data/preloadedSurahs.json'
-import type { SurahMeta, SurahData, Ayah, Reciter, PageData, PageAyah } from '../types/quran'
+import type { SurahMeta, SurahData, Ayah, Reciter, PageData, PageAyah, TafsirId } from '../types/quran'
 
 export const RECITERS: Reciter[] = [
   {
@@ -322,6 +322,84 @@ export async function fetchSurah(surahNumber: number): Promise<SurahData> {
   }
 
   return result
+}
+
+// ─── Multi-Tafsir Caching & Fetcher ──────────────────────────────────────────
+const tafsirCache = new Map<string, Record<number, string>>()
+
+export async function fetchSurahTafsir(
+  surahNumber: number,
+  tafsirId: TafsirId = 'reber'
+): Promise<Record<number, string>> {
+  const cacheKey = `${tafsirId}_${surahNumber}`
+  if (tafsirCache.has(cacheKey)) {
+    return tafsirCache.get(cacheKey)!
+  }
+
+  // 1. Try local JSON dataset in /data/tafsir/${tafsirId}/${surahNumber}.json
+  try {
+    const res = await fetch(`/data/tafsir/${tafsirId}/${surahNumber}.json`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data && data.ayahs) {
+        tafsirCache.set(cacheKey, data.ayahs)
+        return data.ayahs
+      }
+    }
+  } catch (e) {
+    console.warn(`Local tafsir read failed for ${tafsirId}/${surahNumber}:`, e)
+  }
+
+  // 2. Fallback APIs
+  try {
+    if (tafsirId === 'reber') {
+      const qRes = await fetch(
+        `https://api.quran.com/api/v4/verses/by_chapter/${surahNumber}?tafsirs=804&per_page=300`
+      )
+      if (qRes.ok) {
+        const data = await qRes.json()
+        const map: Record<number, string> = {}
+        if (data.verses) {
+          for (const v of data.verses) {
+            const raw = v.tafsirs?.[0]?.text || ''
+            map[v.verse_number] = raw.replace(/<[^>]*>/g, '').trim()
+          }
+        }
+        tafsirCache.set(cacheKey, map)
+        return map
+      }
+    } else if (tafsirId === 'asan') {
+      const res = await fetch(`https://api.alquran.cloud/v1/surah/${surahNumber}/ku.asan`)
+      if (res.ok) {
+        const data = await res.json()
+        const map: Record<number, string> = {}
+        if (data.data?.ayahs) {
+          for (const a of data.data.ayahs) {
+            map[a.numberInSurah] = (a.text || '').trim()
+          }
+        }
+        tafsirCache.set(cacheKey, map)
+        return map
+      }
+    } else if (tafsirId === 'muyassar') {
+      const res = await fetch(`https://api.alquran.cloud/v1/surah/${surahNumber}/ar.muyassar`)
+      if (res.ok) {
+        const data = await res.json()
+        const map: Record<number, string> = {}
+        if (data.data?.ayahs) {
+          for (const a of data.data.ayahs) {
+            map[a.numberInSurah] = (a.text || '').trim()
+          }
+        }
+        tafsirCache.set(cacheKey, map)
+        return map
+      }
+    }
+  } catch (err) {
+    console.warn(`Fallback tafsir fetch failed for ${tafsirId}/${surahNumber}:`, err)
+  }
+
+  return {}
 }
 
 export function getAyahAudioUrl(

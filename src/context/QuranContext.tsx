@@ -11,11 +11,13 @@ import type {
   QuranMistake,
   MistakeCategory,
   NotificationSettings,
+  TafsirId,
 } from '../types/quran'
 import {
   RECITERS,
   fetchSurah,
   fetchPage,
+  fetchSurahTafsir,
   getAyahAudioUrl,
   getPageForSurah,
   getSurahForPage,
@@ -73,6 +75,8 @@ interface QuranContextType {
   setShowTranslation: (show: boolean) => void
   showTafseer: boolean
   setShowTafseer: (show: boolean) => void
+  selectedTafsir: TafsirId
+  setSelectedTafsir: (id: TafsirId) => void
 
   // Rare Words
   highlightRareWords: boolean
@@ -258,6 +262,31 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // View toggles
   const [showTranslation, setShowTranslation] = useState<boolean>(true)
   const [showTafseer, setShowTafseer] = useState<boolean>(false)
+  const [selectedTafsir, setSelectedTafsirState] = useState<TafsirId>(() => {
+    return (localStorage.getItem('quran_selected_tafsir') as TafsirId) || 'reber'
+  })
+
+  const setSelectedTafsir = async (id: TafsirId) => {
+    setSelectedTafsirState(id)
+    localStorage.setItem('quran_selected_tafsir', id)
+    if (currentSurahData) {
+      try {
+        const tafsirMap = await fetchSurahTafsir(currentSurahNumber, id)
+        if (tafsirMap && Object.keys(tafsirMap).length > 0) {
+          setCurrentSurahData((prev) => {
+            if (!prev) return prev
+            const updatedAyahs = prev.ayahs.map((a) => ({
+              ...a,
+              tafseer: tafsirMap[a.numberInSurah] || a.tafseer || '',
+            }))
+            return { ...prev, ayahs: updatedAyahs }
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to update tafsir for current surah:', err)
+      }
+    }
+  }
 
   // Rare Words
   const [highlightRareWords, setHighlightRareWordsState] = useState<boolean>(() => {
@@ -322,7 +351,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     selectedIndices?: number[]
   ): boolean => {
     if (tokIndex !== undefined && selectedIndices && selectedIndices.length > 0) {
-      if (selectedIndices.includes(tokIndex)) return true
+      return selectedIndices.includes(tokIndex)
     }
 
     const rawTok = tokWord.trim()
@@ -398,8 +427,15 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     return notes.find((n) => {
       if (n.surahNumber !== surahNumber || n.ayahNumber !== ayahNumber) return false
-      if (wordIndex !== undefined && n.wordIndex === wordIndex) return true
-      if (wordIndex !== undefined && n.selectedTokenIndices && n.selectedTokenIndices.includes(wordIndex)) return true
+      // 1. Strict match if note was recorded on a specific single word index
+      if (n.wordIndex !== undefined) {
+        return wordIndex !== undefined && n.wordIndex === wordIndex
+      }
+      // 2. Strict match if note was recorded on specific token indices (multi-word phrase)
+      if (n.selectedTokenIndices && n.selectedTokenIndices.length > 0) {
+        return wordIndex !== undefined && n.selectedTokenIndices.includes(wordIndex)
+      }
+      // 3. Fallback only if no position/index was recorded (legacy data)
       if (wordText && n.selectedText) {
         return isTokenInSelectedPhrase(wordText, n.selectedText, wordIndex, n.selectedTokenIndices)
       }
@@ -504,8 +540,15 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   ) => {
     return mistakes.find((m) => {
       if (m.surahNumber !== surahNumber || m.ayahNumber !== ayahNumber) return false
-      if (wordIndex !== undefined && m.wordIndex === wordIndex) return true
-      if (wordIndex !== undefined && m.selectedTokenIndices && m.selectedTokenIndices.includes(wordIndex)) return true
+      // 1. Strict match if mistake was recorded on a specific single word index
+      if (m.wordIndex !== undefined) {
+        return wordIndex !== undefined && m.wordIndex === wordIndex
+      }
+      // 2. Strict match if mistake was recorded on specific token indices (multi-word phrase)
+      if (m.selectedTokenIndices && m.selectedTokenIndices.length > 0) {
+        return wordIndex !== undefined && m.selectedTokenIndices.includes(wordIndex)
+      }
+      // 3. Fallback only if no position/index was recorded (legacy data)
       if (wordText && m.selectedText) {
         return isTokenInSelectedPhrase(wordText, m.selectedText, wordIndex, m.selectedTokenIndices)
       }
@@ -745,6 +788,18 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSurahError(null)
     try {
       const data = await fetchSurah(surahNumber)
+      try {
+        const tafsirMap = await fetchSurahTafsir(surahNumber, selectedTafsir)
+        if (tafsirMap && Object.keys(tafsirMap).length > 0) {
+          data.ayahs.forEach((a) => {
+            if (tafsirMap[a.numberInSurah]) {
+              a.tafseer = tafsirMap[a.numberInSurah]
+            }
+          })
+        }
+      } catch (tErr) {
+        console.warn('Failed to attach tafsir in loadSurah:', tErr)
+      }
       setCurrentSurahNumber(surahNumber)
       setCurrentSurahData(data)
       localStorage.setItem('quran_current_surah', surahNumber.toString())
@@ -1049,6 +1104,8 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setShowTranslation,
         showTafseer,
         setShowTafseer,
+        selectedTafsir,
+        setSelectedTafsir,
         highlightRareWords,
         setHighlightRareWords,
         rareWordThreshold,

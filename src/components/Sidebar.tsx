@@ -26,7 +26,8 @@ import {
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
-import type { ThemeMode, FontFamily, LineSpacing } from '../types/quran'
+import type { ThemeMode, FontFamily, LineSpacing, TafsirId } from '../types/quran'
+import { TAFSIR_OPTIONS } from '../types/quran'
 
 // ── Collapsible group ──────────────────────────────────────────────────────────
 const Group: React.FC<{ label: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }> = ({
@@ -125,6 +126,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowTranslation,
     showTafseer,
     setShowTafseer,
+    selectedTafsir,
+    setSelectedTafsir,
     highlightRareWords,
     setHighlightRareWords,
     rareWordThreshold,
@@ -495,7 +498,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Tafsir strictly in verse-by-verse mode */}
           {readingMode === 'verse' && (
             <div className="space-y-1.5 pt-1.5 border-t border-current/10">
-              <span className="text-[11px] opacity-60">التفسير الميسر</span>
+              <span className="text-[11px] opacity-60">تەفسیری قورئان / التفسير</span>
               <div className="flex gap-1">
                 <button
                   onClick={() => setShowTafseer(false)}
@@ -518,6 +521,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   مع التفسير
                 </button>
               </div>
+
+              {showTafseer && (
+                <div className="space-y-1 pt-1">
+                  <span className="text-[10px] opacity-75 font-semibold">سەرچاوەی تەفسیر / مصدر التفسير:</span>
+                  <select
+                    value={selectedTafsir}
+                    onChange={(e) => setSelectedTafsir(e.target.value as TafsirId)}
+                    className="w-full text-[11px] font-bold p-1.5 rounded-xl bg-current/5 border border-current/15 text-stone-800 dark:text-stone-200 outline-none"
+                    dir="rtl"
+                  >
+                    {TAFSIR_OPTIONS.map((opt) => (
+                      <option
+                        key={opt.id}
+                        value={opt.id}
+                        className="bg-stone-100 dark:bg-stone-900 text-stone-900 dark:text-stone-100"
+                      >
+                        {opt.name} ({opt.badge})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <button
                 onClick={() => setShowTranslation(!showTranslation)}
                 className={`w-full px-3 py-1.5 rounded-lg text-[10px] font-semibold border transition-all text-right ${

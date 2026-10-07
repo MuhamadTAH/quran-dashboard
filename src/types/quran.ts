@@ -127,3 +127,51 @@ export interface NotificationSettings {
   mistakesReminder: boolean
   soundEnabled: boolean
 }
+
+export type TafsirId = 'reber' | 'raman' | 'asan' | 'puxta' | 'muyassar'
+
+export interface TafsirOption {
+  id: TafsirId
+  name: string
+  author: string
+  language: 'ku' | 'ar'
+  badge: string
+}
+
+export const TAFSIR_OPTIONS: TafsirOption[] = [
+  {
+    id: 'reber',
+    name: 'تەفسیری ڕێبەر',
+    author: 'مامۆستا سەڵاحەدین عەبدولکەریم',
+    language: 'ku',
+    badge: 'کوردی (ڕێبەر)',
+  },
+  {
+    id: 'raman',
+    name: 'تەفسیری ڕامان',
+    author: 'مامۆستا ئەحمەد کاکە مەحموود',
+    language: 'ku',
+    badge: 'کوردی (ڕامان)',
+  },
+  {
+    id: 'asan',
+    name: 'تەفسیری ئاسان',
+    author: 'مامۆستا بورهان محمد ئەمین',
+    language: 'ku',
+    badge: 'کوردی (ئاسان)',
+  },
+  {
+    id: 'puxta',
+    name: 'تەفسیری پوختە',
+    author: 'مامۆستا هاروون نووری',
+    language: 'ku',
+    badge: 'کوردی (پوختە)',
+  },
+  {
+    id: 'muyassar',
+    name: 'تفسير الميسر',
+    author: 'مجمع الملك فهد لطباعة المصحف',
+    language: 'ar',
+    badge: 'العربية (الميسر)',
+  },
+]

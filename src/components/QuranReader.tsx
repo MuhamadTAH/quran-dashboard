@@ -25,6 +25,7 @@ import {
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
 import type { FontFamily, LineSpacing, PageData, MistakeCategory, QuranMistake } from '../types/quran'
+import { TAFSIR_OPTIONS } from '../types/quran'
 import { tokenizeAyah, getSurahRareStats } from '../services/wordFrequencyService'
 import { cleanAyahText, fetchPage, stripAllTashkeel } from '../services/quranService'
 import { AiAskModal } from './AiAskModal'
@@ -613,6 +614,7 @@ const MadaniPageView: React.FC<{
                         key={tIdx}
                         data-ayah-number={ayah.numberInSurah}
                         data-surah-number={ayah.surahNumber}
+                        data-word-index={tIdx}
                         onClick={() =>
                           onWordClick(
                             tok.cleaned,
@@ -670,6 +672,7 @@ const MadaniPageView: React.FC<{
                       key={tIdx}
                       data-ayah-number={ayah.numberInSurah}
                       data-surah-number={ayah.surahNumber}
+                      data-word-index={tIdx}
                       onClick={() =>
                         onWordClick(
                           tok.cleaned || tok.text,
@@ -784,6 +787,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
     readingMode,
     showTranslation,
     showTafseer,
+    selectedTafsir,
+    setSelectedTafsir,
     highlightRareWords,
     rareWordThreshold,
     isSelectionMode,
@@ -892,6 +897,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
   // Floating text selection state
   const [selectedTextPart, setSelectedTextPart] = useState<{
     text: string
+    wordIndex?: number
     ayahNumber?: number
     surahNumber?: number
     surahName?: string
@@ -909,10 +915,40 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
 
       let sNum = currentSurahNumber
       let aNum: number | undefined = undefined
+      let startWordIdx: number | undefined = undefined
+      let endWordIdx: number | undefined = undefined
+      let rangeRect: { top: number; left: number } | undefined = undefined
 
-      // 1. Try to find ayah container from Selection nodes
+      // 1. Try to find ayah & exact word indices from Selection Range
       try {
         const range = sel.getRangeAt(0)
+        const rect = range.getBoundingClientRect()
+        rangeRect = { top: rect.top, left: rect.left + rect.width / 2 }
+
+        const startEl = range.startContainer instanceof HTMLElement ? range.startContainer : range.startContainer?.parentElement
+        const endEl = range.endContainer instanceof HTMLElement ? range.endContainer : range.endContainer?.parentElement
+
+        const startSpan = startEl?.closest('[data-word-index]')
+        const endSpan = endEl?.closest('[data-word-index]')
+
+        if (startSpan) {
+          const parsed = parseInt(startSpan.getAttribute('data-word-index') || '', 10)
+          if (!isNaN(parsed)) startWordIdx = parsed
+          const dA = startSpan.getAttribute('data-ayah-number')
+          const dS = startSpan.getAttribute('data-surah-number')
+          if (dA && !aNum) aNum = parseInt(dA, 10)
+          if (dS && !sNum) sNum = parseInt(dS, 10)
+        }
+
+        if (endSpan) {
+          const parsed = parseInt(endSpan.getAttribute('data-word-index') || '', 10)
+          if (!isNaN(parsed)) endWordIdx = parsed
+          const dA = endSpan.getAttribute('data-ayah-number')
+          const dS = endSpan.getAttribute('data-surah-number')
+          if (dA && !aNum) aNum = parseInt(dA, 10)
+          if (dS && !sNum) sNum = parseInt(dS, 10)
+        }
+
         const candidateNodes = [
           range.startContainer,
           range.endContainer,
@@ -930,8 +966,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
           if (ayahEl) {
             const dataA = ayahEl.getAttribute('data-ayah-number')
             const dataS = ayahEl.getAttribute('data-surah-number')
-            if (dataA) aNum = parseInt(dataA, 10)
-            if (dataS) sNum = parseInt(dataS, 10)
+            if (dataA && !aNum) aNum = parseInt(dataA, 10)
+            if (dataS && !sNum) sNum = parseInt(dataS, 10)
 
             if (!aNum && ayahEl.id) {
               const parts = ayahEl.id.replace('ayah-', '').split('-').map(Number)
@@ -1002,52 +1038,88 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         }
       }
 
-      // Compute selected token indices in this ayah
+      // Compute selected token indices in this ayah strictly
       let selectedTokenIndices: number[] | undefined = undefined
-      if (fullAyahText) {
+      let exactWordIndex: number | undefined = undefined
+
+      if (startWordIdx !== undefined && endWordIdx !== undefined) {
+        const minIdx = Math.min(startWordIdx, endWordIdx)
+        const maxIdx = Math.max(startWordIdx, endWordIdx)
+        selectedTokenIndices = []
+        for (let i = minIdx; i <= maxIdx; i++) {
+          selectedTokenIndices.push(i)
+        }
+        if (minIdx === maxIdx) {
+          exactWordIndex = minIdx
+        }
+      } else if (startWordIdx !== undefined) {
+        selectedTokenIndices = [startWordIdx]
+        exactWordIndex = startWordIdx
+      } else if (endWordIdx !== undefined) {
+        selectedTokenIndices = [endWordIdx]
+        exactWordIndex = endWordIdx
+      } else if (fullAyahText) {
+        // Fallback only if no data-word-index was captured in DOM
         const tokens = tokenizeAyah(fullAyahText, rareWordThreshold)
         const cleanSel = stripAllTashkeel(text)
         const cleanWords = cleanSel.split(/\s+/).filter(Boolean)
-        const indices: number[] = []
-        tokens.forEach((tok, idx) => {
-          if (!tok.isWord) return
-          const cleanTok = stripAllTashkeel(tok.cleaned || tok.text)
-          if (
-            cleanSel === cleanTok ||
-            cleanWords.includes(cleanTok) ||
-            cleanSel.includes(cleanTok) ||
-            cleanTok.includes(cleanSel)
-          ) {
-            indices.push(idx)
+
+        if (cleanWords.length === 1) {
+          const matchIdx = tokens.findIndex((tok) => {
+            if (!tok.isWord) return false
+            const cleanTok = stripAllTashkeel(tok.cleaned || tok.text)
+            return (
+              cleanTok === cleanWords[0] ||
+              cleanTok.includes(cleanWords[0]) ||
+              cleanWords[0].includes(cleanTok)
+            )
+          })
+          if (matchIdx !== -1) {
+            selectedTokenIndices = [matchIdx]
+            exactWordIndex = matchIdx
           }
-        })
-        if (indices.length > 0) {
-          selectedTokenIndices = indices
+        } else {
+          let bestStart = -1
+          let bestLen = 0
+          for (let i = 0; i < tokens.length; i++) {
+            if (!tokens[i].isWord) continue
+            let matchCount = 0
+            for (let j = 0; j < cleanWords.length && i + j < tokens.length; j++) {
+              const cTok = stripAllTashkeel(tokens[i + j].cleaned || tokens[i + j].text)
+              if (
+                cTok === cleanWords[j] ||
+                cTok.includes(cleanWords[j]) ||
+                cleanWords[j].includes(cTok)
+              ) {
+                matchCount++
+              } else {
+                break
+              }
+            }
+            if (matchCount > bestLen) {
+              bestLen = matchCount
+              bestStart = i
+            }
+          }
+          if (bestStart !== -1 && bestLen > 0) {
+            selectedTokenIndices = []
+            for (let k = bestStart; k < bestStart + bestLen; k++) {
+              selectedTokenIndices.push(k)
+            }
+          }
         }
       }
 
-      try {
-        const range = sel.getRangeAt(0)
-        const rect = range.getBoundingClientRect()
-        setSelectedTextPart({
-          text,
-          ayahNumber: aNum,
-          surahNumber: sNum,
-          surahName,
-          ayahText: fullAyahText,
-          selectedTokenIndices,
-          rect: { top: rect.top, left: rect.left + rect.width / 2 },
-        })
-      } catch {
-        setSelectedTextPart({
-          text,
-          ayahNumber: aNum,
-          surahNumber: sNum,
-          surahName,
-          ayahText: fullAyahText,
-          selectedTokenIndices,
-        })
-      }
+      setSelectedTextPart({
+        text,
+        wordIndex: exactWordIndex,
+        ayahNumber: aNum,
+        surahNumber: sNum,
+        surahName,
+        ayahText: fullAyahText,
+        selectedTokenIndices,
+        rect: rangeRect,
+      })
     }, 30)
   }
 
@@ -1269,6 +1341,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
       return
     }
 
+    const targetSelectedIndices = targetWordIndex !== undefined ? [targetWordIndex] : undefined
+
     if (isMistakeMode) {
       setMistakeTarget({
         ayahNumber: ayahNum,
@@ -1277,6 +1351,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         surahNumber: sNum,
         surahName: sName,
         ayahText,
+        selectedTokenIndices: targetSelectedIndices,
       })
       return
     }
@@ -1289,6 +1364,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
         surahNumber: sNum,
         surahName: sName,
         ayahText,
+        selectedTokenIndices: targetSelectedIndices,
       })
       return
     }
@@ -1907,6 +1983,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                                 key={idx}
                                 data-ayah-number={ayah.numberInSurah}
                                 data-surah-number={currentSurahNumber}
+                                data-word-index={idx}
                                 onClick={() =>
                                   handleWordClick(
                                     tok.cleaned,
@@ -1964,6 +2041,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                               key={idx}
                               data-ayah-number={ayah.numberInSurah}
                               data-surah-number={currentSurahNumber}
+                              data-word-index={idx}
                               onClick={() =>
                                 handleWordClick(
                                   tok.cleaned || tok.text,
@@ -2146,15 +2224,50 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
                       )}
 
                       {/* Tafsir (strictly only when showTafseer is ON in Verse mode) */}
-                      {showTafseer && ayah.tafseer && (
+                      {showTafseer && (
                         <div
-                          className="p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-400/5 border border-amber-500/20 text-xs sm:text-sm text-right leading-relaxed font-ui"
+                          className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-400/5 border border-amber-500/20 text-xs sm:text-sm text-right leading-relaxed font-ui space-y-2"
                           dir="rtl"
                         >
-                          <span className="font-bold text-amber-700 dark:text-amber-300 block mb-1">
-                            التفسير الميسر:
-                          </span>
-                          <p className="opacity-90">{ayah.tafseer}</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-amber-500/15">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">
+                              <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                              <span>{TAFSIR_OPTIONS.find((t) => t.id === selectedTafsir)?.name || 'التفسير'}</span>
+                              <span className="text-[11px] opacity-70 font-normal">
+                                ({TAFSIR_OPTIONS.find((t) => t.id === selectedTafsir)?.author})
+                              </span>
+                            </div>
+
+                            {/* Kurdish & Arabic Tafsir Quick Switcher Pills */}
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {TAFSIR_OPTIONS.map((opt) => {
+                                const isCurrent = opt.id === selectedTafsir
+                                return (
+                                  <button
+                                    key={opt.id}
+                                    type="button"
+                                    onClick={() => setSelectedTafsir(opt.id)}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold transition-all ${
+                                      isCurrent
+                                        ? 'bg-amber-600 text-white shadow-sm font-bold'
+                                        : 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
+                                    }`}
+                                    title={opt.author}
+                                  >
+                                    {opt.name}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {ayah.tafseer ? (
+                            <p className="opacity-95 text-stone-800 dark:text-stone-200 leading-relaxed font-ui whitespace-pre-line text-xs sm:text-sm">
+                              {ayah.tafseer}
+                            </p>
+                          ) : (
+                            <p className="text-stone-400 italic text-xs">جاري تحميل التفسير أو غير متوفر لهذه الآية...</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2697,6 +2810,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             onClick={() => {
               setMistakeTarget({
                 ayahNumber: selectedTextPart.ayahNumber || 1,
+                wordIndex: selectedTextPart.wordIndex,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
                 surahName:
@@ -2725,6 +2839,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({ showNotesSidebar, setS
             onClick={() => {
               setNoteTarget({
                 ayahNumber: selectedTextPart.ayahNumber || 1,
+                wordIndex: selectedTextPart.wordIndex,
                 wordText: selectedTextPart.text,
                 surahNumber: selectedTextPart.surahNumber || currentSurahNumber,
                 surahName:
