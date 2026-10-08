@@ -82,6 +82,10 @@ const app = express()
 app.use(cors())
 app.use(express.json())
 
+// Healthcheck endpoints for Railway
+app.get('/health', (req, res) => res.status(200).send('OK'))
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime() }))
+
 // Multer storage engine
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -244,7 +248,7 @@ if (fs.existsSync(distDir)) {
 }
 
 // ── Start Server ──────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT || 3000
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Quran Dashboard] Server running on port ${PORT}`)
   console.log(`[Storage] Data dir: ${DATA_DIR}`)
