@@ -119,6 +119,27 @@ export interface QuranMistake {
   corrected?: boolean
 }
 
+export interface QuranNote {
+  id: string
+  surahNumber: number
+  surahName?: string
+  ayahNumber: number
+  ayahText?: string
+  wordIndex?: number   // undefined = ayah-level note, number = word-level note
+  selectedText?: string // phrase or part of ayah for this note
+  selectedTokenIndices?: number[] // indices of words/tokens inside the ayah
+  text: string
+  timestamp: number
+}
+
+export interface CloudUserData {
+  mistakes: QuranMistake[]
+  notes: QuranNote[]
+  bookmarks: Bookmark[]
+  lastRead: LastRead | null
+  lastUpdated?: number
+}
+
 export interface NotificationSettings {
   enabled: boolean
   dailyReminder: boolean

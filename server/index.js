@@ -17,6 +17,7 @@ const __dirname = path.dirname(__filename)
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data')
 const RECORDINGS_DIR = path.join(DATA_DIR, 'recordings')
 const DB_FILE = path.join(DATA_DIR, 'recordings.json')
+const USER_DATA_FILE = path.join(DATA_DIR, 'user_data.json')
 
 // Ensure storage directories exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -29,6 +30,54 @@ if (!fs.existsSync(RECORDINGS_DIR)) {
 // Ensure recordings database file exists
 if (!fs.existsSync(DB_FILE)) {
   fs.writeFileSync(DB_FILE, JSON.stringify([]), 'utf8')
+}
+
+// Ensure user data database file exists
+if (!fs.existsSync(USER_DATA_FILE)) {
+  fs.writeFileSync(
+    USER_DATA_FILE,
+    JSON.stringify(
+      {
+        mistakes: [],
+        notes: [],
+        bookmarks: [],
+        lastRead: null,
+        lastUpdated: Date.now(),
+      },
+      null,
+      2
+    ),
+    'utf8'
+  )
+}
+
+// ── Helpers for User Data JSON Database ──────────────────────────────────────
+function readUserData() {
+  try {
+    if (!fs.existsSync(USER_DATA_FILE)) {
+      return { mistakes: [], notes: [], bookmarks: [], lastRead: null, lastUpdated: Date.now() }
+    }
+    const raw = fs.readFileSync(USER_DATA_FILE, 'utf8')
+    const parsed = JSON.parse(raw)
+    return {
+      mistakes: Array.isArray(parsed.mistakes) ? parsed.mistakes : [],
+      notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+      bookmarks: Array.isArray(parsed.bookmarks) ? parsed.bookmarks : [],
+      lastRead: parsed.lastRead || null,
+      lastUpdated: parsed.lastUpdated || Date.now(),
+    }
+  } catch (err) {
+    console.error('Error reading user data DB:', err)
+    return { mistakes: [], notes: [], bookmarks: [], lastRead: null, lastUpdated: Date.now() }
+  }
+}
+
+function writeUserData(data) {
+  try {
+    fs.writeFileSync(USER_DATA_FILE, JSON.stringify(data, null, 2), 'utf8')
+  } catch (err) {
+    console.error('Error writing user data DB:', err)
+  }
 }
 
 // ── Helpers for Recordings JSON Database ─────────────────────────────────────
@@ -55,11 +104,12 @@ const APP_PASSWORD = (process.env.APP_PASSWORD || '').trim()
 const SERVER_SECRET = process.env.SERVER_SECRET || 'quran-dashboard-secret-key-2026'
 
 function generateToken() {
-  const payload = `auth_${Date.now()}_${APP_PASSWORD}`
-  return crypto.createHmac('sha256', SERVER_SECRET).update(payload).digest('hex')
+  const timestamp = Date.now().toString()
+  const sig = crypto.createHmac('sha256', SERVER_SECRET).update(`${timestamp}:${APP_PASSWORD}`).digest('hex')
+  return `${timestamp}.${sig}`
 }
 
-// In-memory set of valid tokens (or token prefix validation)
+// In-memory set of valid tokens (or legacy validation)
 const validTokens = new Set()
 
 function verifyAuth(req) {
@@ -67,7 +117,19 @@ function verifyAuth(req) {
   const authHeader = req.headers.authorization || ''
   const token = authHeader.replace(/^Bearer\s+/i, '').trim()
   if (!token) return false
-  return validTokens.has(token)
+
+  if (validTokens.has(token)) return true
+
+  // Stateless verification survives container restarts
+  const parts = token.split('.')
+  if (parts.length === 2) {
+    const [timestamp, sig] = parts
+    const expectedSig = crypto.createHmac('sha256', SERVER_SECRET).update(`${timestamp}:${APP_PASSWORD}`).digest('hex')
+    if (sig === expectedSig) {
+      return true
+    }
+  }
+  return false
 }
 
 function authMiddleware(req, res, next) {
@@ -130,6 +192,36 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   return res.status(401).json({ success: false, error: 'Incorrect password' })
+})
+
+// ── User Data Sync Endpoints (Mistakes, Notes, Bookmarks, Progress) ───────────
+// Get user data across devices
+app.get('/api/user-data', authMiddleware, (req, res) => {
+  const data = readUserData()
+  res.json({
+    success: true,
+    data,
+  })
+})
+
+// Save / sync user data across devices
+app.post('/api/user-data', authMiddleware, (req, res) => {
+  const current = readUserData()
+  const incoming = req.body || {}
+
+  const updated = {
+    mistakes: incoming.mistakes !== undefined ? incoming.mistakes : current.mistakes,
+    notes: incoming.notes !== undefined ? incoming.notes : current.notes,
+    bookmarks: incoming.bookmarks !== undefined ? incoming.bookmarks : current.bookmarks,
+    lastRead: incoming.lastRead !== undefined ? incoming.lastRead : current.lastRead,
+    lastUpdated: incoming.lastUpdated || Date.now(),
+  }
+
+  writeUserData(updated)
+  res.json({
+    success: true,
+    data: updated,
+  })
 })
 
 // ── Recordings Endpoints ─────────────────────────────────────────────────────

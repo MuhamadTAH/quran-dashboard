@@ -1,4 +1,5 @@
 // ── API & Cloud Sync Service for Railway Storage and Auth ───────────────────
+import type { CloudUserData } from '../types/quran'
 
 export interface CloudRecordingTake {
   id: string
@@ -79,6 +80,38 @@ export async function loginWithPassword(password: string): Promise<{
     return { success: false, error: data.error || 'كلمة المرور غير صحيحة' }
   } catch (err: any) {
     return { success: false, error: err.message || 'تعذر الاتصال بالسيرفر' }
+  }
+}
+
+// ── User Data Sync Endpoints (Mistakes, Notes, Bookmarks, Last Read) ──────────
+export async function fetchUserDataFromCloud(): Promise<CloudUserData | null> {
+  try {
+    const res = await fetch('/api/user-data', {
+      headers: getAuthHeaders(),
+    })
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data || null
+  } catch (err) {
+    console.warn('Failed to load user data from cloud:', err)
+    return null
+  }
+}
+
+export async function saveUserDataToCloud(data: Partial<CloudUserData>): Promise<boolean> {
+  try {
+    const res = await fetch('/api/user-data', {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    })
+    return res.ok
+  } catch (err) {
+    console.warn('Failed to save user data to cloud:', err)
+    return false
   }
 }
 

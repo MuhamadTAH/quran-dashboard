@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   Bell,
   Settings,
+  Cloud,
 } from 'lucide-react'
 import { useQuran } from '../context/QuranContext'
 import { THEME_CONFIGS } from '../utils/themeStyles'
@@ -148,6 +149,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     bookmarks,
     notes,
     mistakes,
+    cloudSyncStatus,
+    syncWithCloud,
     currentSurahNumber,
     currentPageNumber,
     goToPage,
@@ -236,6 +239,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         ))}
       </nav>
+
+      {/* ── Cloud Sync Status (Phone & Laptop Sync) ── */}
+      <div className="px-3 py-2 border-b border-current/10">
+        <button
+          onClick={() => syncWithCloud()}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border border-current/10 hover:bg-current/5 transition-all text-right"
+          title="مزامنة الأخطاء والملاحظات والعلامات بين الهاتف والحاسوب فوراً"
+        >
+          <div className="flex items-center gap-1.5 truncate">
+            <Cloud
+              className={`w-3.5 h-3.5 shrink-0 ${
+                cloudSyncStatus === 'syncing'
+                  ? 'animate-pulse text-amber-500'
+                  : cloudSyncStatus === 'synced'
+                  ? 'text-emerald-500'
+                  : 'text-stone-400'
+              }`}
+            />
+            <span className="truncate">
+              {cloudSyncStatus === 'syncing'
+                ? 'جاري المزامنة...'
+                : cloudSyncStatus === 'synced'
+                ? 'السحابة متصلة ✓'
+                : cloudSyncStatus === 'offline'
+                ? 'غير متصل بالسحابة'
+                : 'خطأ بالمزامنة'}
+            </span>
+          </div>
+          <RotateCcw
+            className={`w-3 h-3 shrink-0 opacity-60 hover:opacity-100 ${
+              cloudSyncStatus === 'syncing' ? 'animate-spin text-amber-500' : ''
+            }`}
+          />
+        </button>
+      </div>
 
       {/* ── Studio Recording Trigger ── */}
       {onOpenRecording && (

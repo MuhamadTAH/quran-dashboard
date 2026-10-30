@@ -9,6 +9,7 @@ import type {
   Reciter,
   SurahData,
   QuranMistake,
+  QuranNote,
   MistakeCategory,
   NotificationSettings,
   TafsirId,
@@ -32,20 +33,12 @@ import {
   checkScheduledReminders,
   requestNotificationPermission,
 } from '../services/notificationService'
+import {
+  fetchUserDataFromCloud,
+  saveUserDataToCloud,
+} from '../services/apiService'
 
-// ─── Note Types ─────────────────────────────────────────────────────────────
-export interface QuranNote {
-  id: string
-  surahNumber: number
-  surahName?: string
-  ayahNumber: number
-  ayahText?: string
-  wordIndex?: number   // undefined = ayah-level note, number = word-level note
-  selectedText?: string // phrase or part of ayah for this note
-  selectedTokenIndices?: number[] // indices of words/tokens inside the ayah
-  text: string
-  timestamp: number
-}
+export type { QuranNote } from '../types/quran'
 
 interface QuranContextType {
   // Theme & Appearance
@@ -150,6 +143,11 @@ interface QuranContextType {
     wordIndex?: number,
     wordText?: string
   ) => QuranMistake | undefined
+
+  // Cloud Sync (المزامنة السحابية بين الهاتف والحاسوب)
+  cloudSyncStatus: 'synced' | 'syncing' | 'offline' | 'error'
+  lastSyncTime: number
+  syncWithCloud: () => Promise<void>
 
   // Web Notifications (إشعارات الهاتف والحاسوب)
   notificationSettings: NotificationSettings
@@ -328,7 +326,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isMistakeMode, setIsMistakeMode] = useState<boolean>(false)
   const [showMistakesSidebar, setShowMistakesSidebar] = useState<boolean>(false)
 
-  // Notes / Annotations
+  // ── Notes / Annotations ──
   const [notes, setNotes] = useState<QuranNote[]>(() => {
     try {
       const saved = localStorage.getItem('quran_notes')
@@ -338,10 +336,313 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   })
 
+  // ── Mistakes / أخطاء التلاوة والحفظ ──
+  const [mistakes, setMistakes] = useState<QuranMistake[]>(() => {
+    try {
+      const saved = localStorage.getItem('quran_mistakes')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  // ── Bookmarks / العلامات المرجعية ──
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
+    try {
+      const saved = localStorage.getItem('quran_bookmarks')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+
+  // ── Last Read / موضع آخر قراءة ──
+  const [lastRead, setLastRead] = useState<LastRead | null>(() => {
+    try {
+      const saved = localStorage.getItem('quran_last_read')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
+  // ── Cloud Sync State (مزامنة السحابة بين الهاتف والحاسوب) ──
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced')
+  const [lastSyncTime, setLastSyncTime] = useState<number>(() => {
+    const saved = localStorage.getItem('quran_last_sync_time')
+    return saved ? parseInt(saved, 10) : 0
+  })
+  const isSyncingRef = useRef<boolean>(false)
+  const lastSyncTimeRef = useRef<number>(lastSyncTime)
+  lastSyncTimeRef.current = lastSyncTime
+
+  const mistakesRef = useRef<QuranMistake[]>(mistakes)
+  mistakesRef.current = mistakes
+  const notesRef = useRef<QuranNote[]>(notes)
+  notesRef.current = notes
+  const bookmarksRef = useRef<Bookmark[]>(bookmarks)
+  bookmarksRef.current = bookmarks
+  const lastReadRef = useRef<LastRead | null>(lastRead)
+  lastReadRef.current = lastRead
+
   const saveNotes = (updated: QuranNote[]) => {
     setNotes(updated)
     localStorage.setItem('quran_notes', JSON.stringify(updated))
+    saveUserDataToCloud({ notes: updated, lastUpdated: Date.now() }).then((ok) => {
+      if (ok) {
+        const now = Date.now()
+        setLastSyncTime(now)
+        localStorage.setItem('quran_last_sync_time', now.toString())
+        setCloudSyncStatus('synced')
+      }
+    })
   }
+
+  const saveMistakes = (updated: QuranMistake[]) => {
+    setMistakes(updated)
+    localStorage.setItem('quran_mistakes', JSON.stringify(updated))
+    saveUserDataToCloud({ mistakes: updated, lastUpdated: Date.now() }).then((ok) => {
+      if (ok) {
+        const now = Date.now()
+        setLastSyncTime(now)
+        localStorage.setItem('quran_last_sync_time', now.toString())
+        setCloudSyncStatus('synced')
+      }
+    })
+  }
+
+  const saveBookmarks = (updated: Bookmark[]) => {
+    setBookmarks(updated)
+    localStorage.setItem('quran_bookmarks', JSON.stringify(updated))
+    saveUserDataToCloud({ bookmarks: updated, lastUpdated: Date.now() }).then((ok) => {
+      if (ok) {
+        const now = Date.now()
+        setLastSyncTime(now)
+        localStorage.setItem('quran_last_sync_time', now.toString())
+        setCloudSyncStatus('synced')
+      }
+    })
+  }
+
+  const saveLastRead = (surahNumber: number, surahName: string, ayahNumber: number) => {
+    const item: LastRead = {
+      surahNumber,
+      surahName,
+      ayahNumber,
+      timestamp: Date.now(),
+    }
+    setLastRead(item)
+    localStorage.setItem('quran_last_read', JSON.stringify(item))
+    saveUserDataToCloud({ lastRead: item, lastUpdated: Date.now() }).then((ok) => {
+      if (ok) {
+        const now = Date.now()
+        setLastSyncTime(now)
+        localStorage.setItem('quran_last_sync_time', now.toString())
+        setCloudSyncStatus('synced')
+      }
+    })
+  }
+
+  const syncWithCloud = async () => {
+    if (isSyncingRef.current) return
+    isSyncingRef.current = true
+    setCloudSyncStatus('syncing')
+
+    try {
+      const cloudData = await fetchUserDataFromCloud()
+      if (!cloudData) {
+        setCloudSyncStatus('offline')
+        return
+      }
+
+      const curMistakes = mistakesRef.current
+      const curNotes = notesRef.current
+      const curBookmarks = bookmarksRef.current
+      const curLastRead = lastReadRef.current
+
+      const cloudUpdated = cloudData.lastUpdated || 0
+      const localSync = lastSyncTimeRef.current
+
+      // First sync on this device / browser session
+      if (localSync === 0) {
+        const serverHasData =
+          (cloudData.mistakes && cloudData.mistakes.length > 0) ||
+          (cloudData.notes && cloudData.notes.length > 0) ||
+          (cloudData.bookmarks && cloudData.bookmarks.length > 0) ||
+          Boolean(cloudData.lastRead)
+
+        const localHasData =
+          curMistakes.length > 0 || curNotes.length > 0 || curBookmarks.length > 0 || Boolean(curLastRead)
+
+        if (serverHasData && !localHasData) {
+          // Adopt server data
+          if (cloudData.mistakes) {
+            setMistakes(cloudData.mistakes)
+            localStorage.setItem('quran_mistakes', JSON.stringify(cloudData.mistakes))
+          }
+          if (cloudData.notes) {
+            setNotes(cloudData.notes)
+            localStorage.setItem('quran_notes', JSON.stringify(cloudData.notes))
+          }
+          if (cloudData.bookmarks) {
+            setBookmarks(cloudData.bookmarks)
+            localStorage.setItem('quran_bookmarks', JSON.stringify(cloudData.bookmarks))
+          }
+          if (cloudData.lastRead) {
+            setLastRead(cloudData.lastRead)
+            localStorage.setItem('quran_last_read', JSON.stringify(cloudData.lastRead))
+          }
+        } else if (localHasData && !serverHasData) {
+          // Push local data to server
+          await saveUserDataToCloud({
+            mistakes: curMistakes,
+            notes: curNotes,
+            bookmarks: curBookmarks,
+            lastRead: curLastRead,
+            lastUpdated: Date.now(),
+          })
+        } else if (serverHasData && localHasData) {
+          // Smart merge both sides
+          const mistakeMap = new Map<string, QuranMistake>()
+          cloudData.mistakes?.forEach((m) => mistakeMap.set(m.id, m))
+          curMistakes.forEach((m) => {
+            const ex = mistakeMap.get(m.id)
+            if (!ex || m.timestamp > ex.timestamp) {
+              mistakeMap.set(m.id, m)
+            }
+          })
+          const mergedMistakes = Array.from(mistakeMap.values()).sort((a, b) => b.timestamp - a.timestamp)
+
+          const noteMap = new Map<string, QuranNote>()
+          cloudData.notes?.forEach((n) => noteMap.set(n.id, n))
+          curNotes.forEach((n) => {
+            const ex = noteMap.get(n.id)
+            if (!ex || n.timestamp > ex.timestamp) {
+              noteMap.set(n.id, n)
+            }
+          })
+          const mergedNotes = Array.from(noteMap.values()).sort((a, b) => b.timestamp - a.timestamp)
+
+          const bmMap = new Map<string, Bookmark>()
+          cloudData.bookmarks?.forEach((b) => bmMap.set(b.id, b))
+          curBookmarks.forEach((b) => {
+            const ex = bmMap.get(b.id)
+            if (!ex || b.timestamp > ex.timestamp) {
+              bmMap.set(b.id, b)
+            }
+          })
+          const mergedBookmarks = Array.from(bmMap.values()).sort((a, b) => b.timestamp - a.timestamp)
+
+          const mergedLastRead =
+            cloudData.lastRead && curLastRead
+              ? cloudData.lastRead.timestamp > curLastRead.timestamp
+                ? cloudData.lastRead
+                : curLastRead
+              : cloudData.lastRead || curLastRead
+
+          setMistakes(mergedMistakes)
+          localStorage.setItem('quran_mistakes', JSON.stringify(mergedMistakes))
+          setNotes(mergedNotes)
+          localStorage.setItem('quran_notes', JSON.stringify(mergedNotes))
+          setBookmarks(mergedBookmarks)
+          localStorage.setItem('quran_bookmarks', JSON.stringify(mergedBookmarks))
+          if (mergedLastRead) {
+            setLastRead(mergedLastRead)
+            localStorage.setItem('quran_last_read', JSON.stringify(mergedLastRead))
+          }
+
+          await saveUserDataToCloud({
+            mistakes: mergedMistakes,
+            notes: mergedNotes,
+            bookmarks: mergedBookmarks,
+            lastRead: mergedLastRead,
+            lastUpdated: Date.now(),
+          })
+        }
+      } else {
+        // Subsequent sync: check if cloud has newer updates
+        if (cloudUpdated > localSync) {
+          const newLocalMistakes = curMistakes.filter(
+            (m) => m.timestamp > localSync && !cloudData.mistakes?.some((cm) => cm.id === m.id)
+          )
+          const newLocalNotes = curNotes.filter(
+            (n) => n.timestamp > localSync && !cloudData.notes?.some((cn) => cn.id === n.id)
+          )
+          const newLocalBookmarks = curBookmarks.filter(
+            (b) => b.timestamp > localSync && !cloudData.bookmarks?.some((cb) => cb.id === b.id)
+          )
+
+          const mergedMistakes = [...(cloudData.mistakes || []), ...newLocalMistakes].sort((a, b) => b.timestamp - a.timestamp)
+          const mergedNotes = [...(cloudData.notes || []), ...newLocalNotes].sort((a, b) => b.timestamp - a.timestamp)
+          const mergedBookmarks = [...(cloudData.bookmarks || []), ...newLocalBookmarks].sort((a, b) => b.timestamp - a.timestamp)
+          const mergedLastRead =
+            cloudData.lastRead && curLastRead
+              ? cloudData.lastRead.timestamp > curLastRead.timestamp
+                ? cloudData.lastRead
+                : curLastRead
+              : cloudData.lastRead || curLastRead
+
+          setMistakes(mergedMistakes)
+          localStorage.setItem('quran_mistakes', JSON.stringify(mergedMistakes))
+          setNotes(mergedNotes)
+          localStorage.setItem('quran_notes', JSON.stringify(mergedNotes))
+          setBookmarks(mergedBookmarks)
+          localStorage.setItem('quran_bookmarks', JSON.stringify(mergedBookmarks))
+          if (mergedLastRead) {
+            setLastRead(mergedLastRead)
+            localStorage.setItem('quran_last_read', JSON.stringify(mergedLastRead))
+          }
+
+          if (newLocalMistakes.length > 0 || newLocalNotes.length > 0 || newLocalBookmarks.length > 0) {
+            await saveUserDataToCloud({
+              mistakes: mergedMistakes,
+              notes: mergedNotes,
+              bookmarks: mergedBookmarks,
+              lastRead: mergedLastRead,
+              lastUpdated: Date.now(),
+            })
+          }
+        }
+      }
+
+      const newSyncTime = Math.max(Date.now(), cloudUpdated)
+      setLastSyncTime(newSyncTime)
+      localStorage.setItem('quran_last_sync_time', newSyncTime.toString())
+      setCloudSyncStatus('synced')
+    } catch (err) {
+      console.warn('Sync failed:', err)
+      setCloudSyncStatus('error')
+    } finally {
+      isSyncingRef.current = false
+    }
+  }
+
+  // Auto-sync on mount, window focus, tab visibility, and periodic timer
+  useEffect(() => {
+    syncWithCloud()
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        syncWithCloud()
+      }
+    }
+    const handleFocus = () => {
+      syncWithCloud()
+    }
+
+    window.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleFocus)
+
+    const interval = setInterval(() => {
+      syncWithCloud()
+    }, 15000)
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleFocus)
+      clearInterval(interval)
+    }
+  }, [])
 
   // Helper to match a word/token inside a selected phrase
   const isTokenInSelectedPhrase = (
@@ -444,20 +745,6 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }
 
   // Mistakes / أخطاء التلاوة والحفظ
-  const [mistakes, setMistakes] = useState<QuranMistake[]>(() => {
-    try {
-      const saved = localStorage.getItem('quran_mistakes')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
-
-  const saveMistakes = (updated: QuranMistake[]) => {
-    setMistakes(updated)
-    localStorage.setItem('quran_mistakes', JSON.stringify(updated))
-  }
-
   const addMistake = (
     surahNumber: number,
     ayahNumber: number,
@@ -659,26 +946,6 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }
 
-  // Bookmarks
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => {
-    try {
-      const saved = localStorage.getItem('quran_bookmarks')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
-
-  // Last read
-  const [lastRead, setLastRead] = useState<LastRead | null>(() => {
-    try {
-      const saved = localStorage.getItem('quran_last_read')
-      return saved ? JSON.parse(saved) : null
-    } catch {
-      return null
-    }
-  })
-
   // Audio reciter
   const [reciter, setReciterState] = useState<Reciter>(() => {
     const savedId = localStorage.getItem('quran_reciter_id')
@@ -755,8 +1022,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       updated = [newBm, ...bookmarks]
     }
-    setBookmarks(updated)
-    localStorage.setItem('quran_bookmarks', JSON.stringify(updated))
+    saveBookmarks(updated)
   }
 
   const isBookmarked = (surahNumber: number, ayahNumber: number) => {
@@ -767,19 +1033,7 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const removeBookmark = (id: string) => {
     const updated = bookmarks.filter((b) => b.id !== id)
-    setBookmarks(updated)
-    localStorage.setItem('quran_bookmarks', JSON.stringify(updated))
-  }
-
-  const saveLastRead = (surahNumber: number, surahName: string, ayahNumber: number) => {
-    const item: LastRead = {
-      surahNumber,
-      surahName,
-      ayahNumber,
-      timestamp: Date.now(),
-    }
-    setLastRead(item)
-    localStorage.setItem('quran_last_read', JSON.stringify(item))
+    saveBookmarks(updated)
   }
 
   // Surah loader
@@ -1134,6 +1388,9 @@ export const QuranProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toggleMistakeCorrected,
         getAyahMistakes,
         getWordMistake,
+        cloudSyncStatus,
+        lastSyncTime,
+        syncWithCloud,
         notificationSettings,
         updateNotificationSettings,
         requestNotifications,
